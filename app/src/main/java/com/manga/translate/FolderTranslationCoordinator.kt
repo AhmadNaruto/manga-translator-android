@@ -947,6 +947,7 @@ internal class FolderTranslationCoordinator(
         onCountUpdated: suspend (Int) -> Unit
     ): Boolean {
         val maxConcurrency = settingsStore.loadMaxConcurrency()
+        // 用信号量给并发翻译的页数封顶，所有页共享同一 scheduler，使加权轮转跨页生效。
         val apiSemaphore = Semaphore(maxConcurrency)
         val translatedCount = AtomicInteger(0)
         val hasFailures = AtomicBoolean(false)
@@ -1238,6 +1239,8 @@ internal class FolderTranslationCoordinator(
         var lastRequestException: LlmRequestException? = null
         orderedProviders.forEach { providerContext ->
             try {
+                // 在锁内只做一件快的事：拷贝当前译名表快照，随后立刻释放锁。
+                // 耗时的 LLM 调用在锁外进行，避免并发翻译的多页互相阻塞（页越多越关键）。
                 val glossarySnapshot = glossaryMutex.withLock { LinkedHashMap(glossary) }
                 val result = translationPipeline.translateStandardPage(
                     page = resolvedPage,
@@ -1247,6 +1250,8 @@ internal class FolderTranslationCoordinator(
                     providerContext = providerContext
                 ) { }
                 if (result != null) {
+                    // 用“本页拿到快照后、共享表里又被其他页改动过”的键作为本页实际使用的译名：
+                    // 对比的是快照值与当前共享值，挑出快照期间发生变化的条目回传给本页结果。
                     val glossaryUsed = if (glossaryProcessingEnabled) {
                         glossarySnapshot.filterKeys { key ->
                             glossary[key] != glossarySnapshot[key]
@@ -1471,6 +1476,9 @@ internal class FolderTranslationCoordinator(
         folder: File
     ) {
         if (additions.isEmpty()) return
+        // 合并阶段重新拿锁写入共享表，并在锁内拷出一份待落盘快照：
+        // 实际磁盘写入(glossaryStore.save)放到锁外的 IO 线程，避免持锁做文件写阻塞其他页的合并。
+        // 仅当本次确有改动时才落盘，减少并发下的重复写。
         val snapshotToSave = glossaryMutex.withLock {
             var changed = false
             additions.forEach { (key, value) ->

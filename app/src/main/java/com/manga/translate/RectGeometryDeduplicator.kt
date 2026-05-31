@@ -15,6 +15,7 @@ object RectGeometryDeduplicator {
         if (rects.size <= 1) return rects
         val imageArea = (imageWidth.toFloat() * imageHeight.toFloat()).coerceAtLeast(1f)
         val mergedRects = rects.map { RectF(it) }.toMutableList()
+        // 迭代到不动点：一次合并产生的更大框可能又触及第三个框，必须反复扫描直到某轮没有合并发生。
         var merged = true
         while (merged) {
             merged = false
@@ -26,6 +27,7 @@ object RectGeometryDeduplicator {
                         mergedRects.removeAt(j)
                         merged = true
                     } else {
+                        // 仅在不合并时前进 j；合并后第 j 位已换成新元素，需原地复检。
                         j++
                     }
                 }
@@ -64,6 +66,8 @@ object RectGeometryDeduplicator {
     private fun mergeDenseClusters(rects: List<RectF>, imageArea: Float): List<RectF> {
         if (rects.size <= DENSE_CLUSTER_MIN_COUNT) return rects
 
+        // 第二阶段：对前面成对合并后仍残留的密集小框做连通分量(BFS)聚类。
+        // 场景是一堆挨得很近、单独看都达不到成对合并阈值的碎块（如手写拟声词），整体却应视为一个区域。
         val visited = BooleanArray(rects.size)
         val result = ArrayList<RectF>(rects.size)
 
@@ -85,6 +89,8 @@ object RectGeometryDeduplicator {
                 }
             }
 
+            // 只有“成员够多”且“合并后不会占据整页过大比例”时才整体合并；否则原样保留各成员，
+            // 避免把稀疏分布或跨大半页的框误聚成一个巨框。
             if (component.size >= DENSE_CLUSTER_MIN_COUNT) {
                 val union = unionOfComponent(rects, component)
                 val unionArea = max(0f, union.width()) * max(0f, union.height())
@@ -239,17 +245,22 @@ object RectGeometryDeduplicator {
         val areaB = max(0f, b.width()) * max(0f, b.height())
         if (areaA <= 0f || areaB <= 0f) return false
         val minArea = min(areaA, areaB)
+        // 一框几乎被另一框包住时直接合并，不再走下面的阈值判断。
         val overlapOverMin = overlapOverMinArea(a, b, minArea)
         if (overlapOverMin >= MERGE_OVERLAP_MIN_RATIO) return true
 
+        // 阈值随框大小自适应：sizeT 接近 0 表示小框（噪点/拆碎的文字），用更宽松的间距和更低的 IoU 把它们粘回去；
+        // 接近 1 表示大框，收紧标准以免把相邻的独立气泡误并。
         val sizeT = sqrt((minArea / imageArea) / MERGE_SIZE_REF_AREA).coerceIn(0f, 1f)
         val pad = lerp(MERGE_PAD_MAX, MERGE_PAD_MIN, sizeT)
         val iouThreshold = lerp(MERGE_IOU_SMALL, MERGE_IOU_LARGE, sizeT)
 
+        // 合并后会占据整页过大比例时放弃，避免把跨页的多个气泡塌缩成一个巨框。
         val union = unionRects(a, b)
         val unionArea = max(0f, union.width()) * max(0f, union.height())
         if (unionArea / imageArea >= MERGE_MAX_UNION_FRACTION) return false
 
+        // 垂直中心相距过远的不合并：同一气泡被拆出的碎块通常上下贴近，限制 y 间距可挡掉竖排相邻气泡。
         val centerAY = (a.top + a.bottom) * 0.5f
         val centerBY = (b.top + b.bottom) * 0.5f
         val yGap = abs(centerAY - centerBY)
@@ -257,6 +268,7 @@ object RectGeometryDeduplicator {
         if (yGap > yGapLimit) return false
 
         if (iou(a, b) >= iouThreshold) return true
+        // IoU 不够时退一步：两框各按 pad 外扩后若相交也算邻接，用于粘合“挨着但不重叠”的碎块。
         val expandedA = RectF(a.left - pad, a.top - pad, a.right + pad, a.bottom + pad)
         val expandedB = RectF(b.left - pad, b.top - pad, b.right + pad, b.bottom + pad)
         return RectF.intersects(expandedA, b) || RectF.intersects(expandedB, a)
