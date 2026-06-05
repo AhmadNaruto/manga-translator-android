@@ -55,11 +55,21 @@ class TranslationKeepAliveService : Service() {
         )
         when (intent?.action) {
             ACTION_START_TRANSLATION_TASK -> {
-                loadDescriptor(intent)?.let(::startTranslationTask)
+                val descriptor = loadDescriptor(intent)
+                if (descriptor == null) {
+                    stopIdleTranslationTask(clearPersistedTask = false)
+                } else {
+                    startTranslationTask(descriptor)
+                }
             }
             ACTION_RESUME_TRANSLATION_TASK -> {
                 if (translationJob?.isActive != true) {
-                    taskPersistence.load()?.let(::startTranslationTask)
+                    val descriptor = taskPersistence.load()
+                    if (descriptor == null) {
+                        stopIdleTranslationTask(clearPersistedTask = true)
+                    } else {
+                        startTranslationTask(descriptor)
+                    }
                 }
             }
         }
@@ -107,6 +117,16 @@ class TranslationKeepAliveService : Service() {
         return runCatching {
             parseTranslationTaskDescriptor(org.json.JSONObject(raw))
         }.getOrNull()
+    }
+
+    private fun stopIdleTranslationTask(clearPersistedTask: Boolean) {
+        cancelActionEnabled = false
+        if (clearPersistedTask) {
+            taskPersistence.clear()
+        }
+        GlobalTaskProgressStore.hide()
+        releaseWakeLock()
+        stopSelf()
     }
 
     private fun startTranslationTask(descriptor: TranslationTaskDescriptor) {
@@ -169,6 +189,12 @@ class TranslationKeepAliveService : Service() {
                     onTranslateEnabled = { }
                 )
             }
+        }
+        if (translationJob == null) {
+            // The coordinator may return null when everything is already done,
+            // inputs are empty, or startup validation fails before launching a job.
+            stopIdleTranslationTask(clearPersistedTask = true)
+            return
         }
         translationJob?.invokeOnCompletion {
             translationJob = null

@@ -419,8 +419,7 @@ class LibraryFragment : Fragment() {
         binding.folderCancelSelection.setOnClickListener { exitActiveSelectionMode() }
         binding.folderRetranslateSelected.setOnClickListener {
             val folder = currentFolder
-            val enabled = folder?.let { preferencesGateway.isFullTranslateEnabled(it) } ?: true
-            selectionController.retranslateSelectedImages(folder, enabled)
+            selectionController.retranslateSelectedImages(folder)
         }
         binding.folderFullTranslateInfo.setOnClickListener { showFullTranslateInfo() }
         binding.folderLanguageSetting.setOnClickListener { showLanguageSettingDialog() }

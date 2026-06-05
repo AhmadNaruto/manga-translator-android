@@ -90,7 +90,7 @@ internal class LibrarySelectionController(
         }
     }
 
-    fun retranslateSelectedImages(folder: File?, fullTranslateEnabled: Boolean) {
+    fun retranslateSelectedImages(folder: File?) {
         val context = contextProvider() ?: return
         if (folder == null) return
         val selected = imageAdapter.getSelectedFiles()
@@ -99,6 +99,6 @@ internal class LibrarySelectionController(
             return
         }
         exitSelectionMode()
-        onRetranslateRequested(folder, selected, fullTranslateEnabled)
+        onRetranslateRequested(folder, selected, true)
     }
 }
