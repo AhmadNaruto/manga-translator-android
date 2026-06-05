@@ -516,7 +516,10 @@ class ReadingFragment : Fragment() {
                 webtoonProgrammaticScroll = false
                 return@post
             }
-            webtoonLayoutManager.scrollToPositionWithOffset(targetIndex, 0)
+            val adapterPosition = webtoonAdapter.adapterPositionForImageIndex(targetIndex)
+                .takeIf { it != RecyclerView.NO_POSITION }
+                ?: targetIndex
+            webtoonLayoutManager.scrollToPositionWithOffset(adapterPosition, 0)
             updateWebtoonPageInfo()
             persistWebtoonProgress()
             startWebtoonTranslationWatcher()
@@ -535,7 +538,13 @@ class ReadingFragment : Fragment() {
 
     private fun syncWebtoonEditSession() {
         val active = isWebtoonEditSessionActive()
-        webtoonLayoutManager.setLockedPosition(if (active) webtoonLockedPageIndex else null)
+        val lockedAdapterPosition = if (active) {
+            webtoonAdapter.adapterPositionForImageIndex(webtoonLockedPageIndex ?: RecyclerView.NO_POSITION)
+                .takeIf { it != RecyclerView.NO_POSITION }
+        } else {
+            null
+        }
+        webtoonLayoutManager.setLockedPosition(lockedAdapterPosition)
         webtoonAdapter.updateEditSession(
             enabled = active,
             lockedImagePath = if (active) webtoonLockedPagePath else null,
@@ -585,7 +594,8 @@ class ReadingFragment : Fragment() {
     private fun resolveLockedWebtoonIndex(): Int? {
         val firstVisible = webtoonLayoutManager.findFirstVisibleItemPosition()
         if (firstVisible != RecyclerView.NO_POSITION) {
-            return firstVisible
+            val imageIndex = webtoonAdapter.imageIndexForAdapterPosition(firstVisible)
+            if (imageIndex != RecyclerView.NO_POSITION) return imageIndex
         }
         val images = readingSessionViewModel.images.value.orEmpty()
         if (images.isEmpty()) return null
@@ -907,7 +917,10 @@ class ReadingFragment : Fragment() {
                                 webtoonProgrammaticScroll = false
                                 return@post
                             }
-                            webtoonLayoutManager.scrollToPositionWithOffset(targetIndex, 0)
+                            val adapterPosition = webtoonAdapter.adapterPositionForImageIndex(targetIndex)
+                                .takeIf { it != RecyclerView.NO_POSITION }
+                                ?: targetIndex
+                            webtoonLayoutManager.scrollToPositionWithOffset(adapterPosition, 0)
                             updateWebtoonPageInfo()
                             persistWebtoonProgress()
                             binding.readingWebtoonList.post {
@@ -1184,12 +1197,10 @@ class ReadingFragment : Fragment() {
         val firstVisible = webtoonLayoutManager.findFirstVisibleItemPosition()
         val lastVisible = webtoonLayoutManager.findLastVisibleItemPosition()
         if (firstVisible == RecyclerView.NO_POSITION || lastVisible == RecyclerView.NO_POSITION) return
-        val start = firstVisible.coerceAtLeast(0)
-        val end = lastVisible.coerceAtMost(images.lastIndex)
-        if (start > end) return
-        for (index in start..end) {
-            val imageFile = images[index]
-            webtoonAdapter.notifyTranslationChanged(imageFile.absolutePath)
+        val paths = webtoonAdapter.imagePathsForAdapterRange(firstVisible, lastVisible)
+        if (paths.isEmpty()) return
+        for (path in paths) {
+            webtoonAdapter.notifyTranslationChanged(path)
         }
     }
 
@@ -1258,13 +1269,7 @@ class ReadingFragment : Fragment() {
         val firstVisible = webtoonLayoutManager.findFirstVisibleItemPosition()
         val lastVisible = webtoonLayoutManager.findLastVisibleItemPosition()
         if (firstVisible == RecyclerView.NO_POSITION || lastVisible == RecyclerView.NO_POSITION) return false
-        val start = firstVisible.coerceAtLeast(0)
-        val end = lastVisible.coerceAtMost(images.lastIndex)
-        if (start > end) return false
-        for (index in start..end) {
-            if (images[index].absolutePath == path) return true
-        }
-        return false
+        return webtoonAdapter.imagePathsForAdapterRange(firstVisible, lastVisible).contains(path)
     }
 
     private fun startTranslationWatcher(imageFile: java.io.File) {
@@ -1310,10 +1315,13 @@ class ReadingFragment : Fragment() {
         val firstVisible = webtoonLayoutManager.findFirstVisibleItemPosition()
         val lastVisible = webtoonLayoutManager.findLastVisibleItemPosition()
         if (firstVisible == RecyclerView.NO_POSITION || lastVisible == RecyclerView.NO_POSITION) return
-        val start = (firstVisible - webtoonTranslationWarmRadius).coerceAtLeast(0)
-        val end = (lastVisible + webtoonTranslationWarmRadius).coerceAtMost(images.lastIndex)
-        val visibleStart = firstVisible.coerceAtLeast(0)
-        val visibleEnd = lastVisible.coerceAtMost(images.lastIndex)
+        val firstImageIndex = webtoonAdapter.imageIndexForAdapterPosition(firstVisible)
+        val lastImageIndex = webtoonAdapter.imageIndexForAdapterPosition(lastVisible)
+        if (firstImageIndex == RecyclerView.NO_POSITION || lastImageIndex == RecyclerView.NO_POSITION) return
+        val visibleStart = minOf(firstImageIndex, lastImageIndex).coerceAtLeast(0)
+        val visibleEnd = maxOf(firstImageIndex, lastImageIndex).coerceAtMost(images.lastIndex)
+        val start = (visibleStart - webtoonTranslationWarmRadius).coerceAtLeast(0)
+        val end = (visibleEnd + webtoonTranslationWarmRadius).coerceAtMost(images.lastIndex)
         val warmTargets = ArrayList<java.io.File>(end - start + 1)
         for (index in start..end) {
             if (index in visibleStart..visibleEnd) continue
@@ -1339,9 +1347,11 @@ class ReadingFragment : Fragment() {
 
     private fun persistWebtoonProgress() {
         val folder = readingSessionViewModel.currentFolder.value ?: return
-        val index = webtoonLayoutManager.findFirstVisibleItemPosition()
-        if (index == RecyclerView.NO_POSITION) return
-        readingProgressStore.save(folder, index)
+        val adapterPosition = webtoonLayoutManager.findFirstVisibleItemPosition()
+        if (adapterPosition == RecyclerView.NO_POSITION) return
+        val imageIndex = webtoonAdapter.imageIndexForAdapterPosition(adapterPosition)
+        if (imageIndex == RecyclerView.NO_POSITION) return
+        readingProgressStore.save(folder, imageIndex)
     }
 
     private fun updateWebtoonPageInfo() {
@@ -1355,7 +1365,12 @@ class ReadingFragment : Fragment() {
         val displayIndex = if (firstVisible == RecyclerView.NO_POSITION) {
             (readingSessionViewModel.index.value ?: 0).coerceIn(0, total - 1)
         } else {
-            firstVisible.coerceIn(0, total - 1)
+            val imageIndex = webtoonAdapter.imageIndexForAdapterPosition(firstVisible)
+            if (imageIndex == RecyclerView.NO_POSITION) {
+                (readingSessionViewModel.index.value ?: 0).coerceIn(0, total - 1)
+            } else {
+                imageIndex.coerceIn(0, total - 1)
+            }
         }
         binding.readingPageInfo.visibility = View.VISIBLE
         binding.readingPageInfo.text = getString(
