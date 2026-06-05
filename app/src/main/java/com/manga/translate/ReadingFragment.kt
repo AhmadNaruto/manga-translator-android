@@ -77,6 +77,7 @@ class ReadingFragment : Fragment() {
     private var translationWatchJob: Job? = null
     private var webtoonTranslationWatchJob: Job? = null
     private var webtoonTranslationWarmJob: Job? = null
+    private var currentDecodedImage: DecodedReadingBitmap? = null
     private var currentBitmap: Bitmap? = null
     private var currentImageWidth: Int = 0
     private var currentImageHeight: Int = 0
@@ -289,14 +290,14 @@ class ReadingFragment : Fragment() {
             reloadReadingContent()
         }
         binding.readingImage.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-            if (currentBitmap == null) return@addOnLayoutChangeListener
+            val decoded = currentDecodedImage ?: return@addOnLayoutChangeListener
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
                 if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-                    updateReadingContentLayout(currentBitmap)
+                    updateReadingContentLayout(decoded)
                     updateOverlay(currentTranslation, currentBitmap)
                 } else {
-                    readingDisplayMode = resolveReadingDisplayMode(currentBitmap)
-                    imageTransformController.reset(currentBitmap!!, readingDisplayMode)
+                    readingDisplayMode = resolveReadingDisplayMode(decoded)
+                    imageTransformController.resetContent(decoded.displayWidth, decoded.displayHeight, readingDisplayMode)
                 }
             }
         }
@@ -352,6 +353,7 @@ class ReadingFragment : Fragment() {
             binding.readingImage.setImageDrawable(null)
             displayedImagePath = null
             displayedPageIndex = null
+            currentDecodedImage = null
             currentBitmap = null
             currentImageWidth = 0
             currentImageHeight = 0
@@ -363,7 +365,7 @@ class ReadingFragment : Fragment() {
         val index = (readingSessionViewModel.index.value ?: 0).coerceIn(0, images.lastIndex)
         val imageFile = images[index]
         currentImageFile = imageFile
-        val previousBitmap = currentBitmap
+        val previousDecoded = currentDecodedImage
         val previousDisplayedPath = displayedImagePath
         val previousDisplayedIndex = displayedPageIndex
         val previousPageSnapshot = captureCurrentPageSnapshot()
@@ -398,8 +400,10 @@ class ReadingFragment : Fragment() {
                 return@launch
             }
             val isTargetLongImage = decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)
-            val shouldAnimate = bitmap != null &&
-                previousBitmap != null &&
+            val shouldAnimate = decoded != null &&
+                !decoded.isTiled &&
+                previousDecoded != null &&
+                !previousDecoded.isTiled &&
                 previousPageSnapshot != null &&
                 previousDisplayedPath != null &&
                 previousDisplayedPath != targetPath &&
@@ -407,17 +411,19 @@ class ReadingFragment : Fragment() {
                 !isTargetLongImage
             val direction = if ((previousDisplayedIndex ?: targetIndex) < targetIndex) -1 else 1
             binding.readingImage.translationX = 0f
-            if (bitmap != null) {
-                binding.readingImage.setImageBitmap(bitmap)
+            if (decoded != null) {
+                binding.readingImage.setImageDrawable(decoded.drawable)
+                currentDecodedImage = decoded
                 currentBitmap = bitmap
                 currentImageWidth = decoded.sourceWidth
                 currentImageHeight = decoded.sourceHeight
-                imageTransformController.setCurrentBitmap(bitmap)
-                applyReadingImageLayerMode(bitmap)
+                imageTransformController.setCurrentContent(decoded.displayWidth, decoded.displayHeight)
+                applyReadingImageLayerMode(decoded)
                 displayedImagePath = targetPath
                 displayedPageIndex = targetIndex
             } else {
                 binding.readingImage.setImageDrawable(null)
+                currentDecodedImage = null
                 currentBitmap = null
                 currentImageWidth = 0
                 currentImageHeight = 0
@@ -428,14 +434,14 @@ class ReadingFragment : Fragment() {
             }
             binding.readingScrollContainer.scrollTo(0, 0)
             binding.readingImage.post {
-                if (bitmap != null) {
-                    readingDisplayMode = resolveReadingDisplayMode(bitmap)
-                    updateReadingContentLayout(bitmap)
+                if (decoded != null) {
+                    readingDisplayMode = resolveReadingDisplayMode(decoded)
+                    updateReadingContentLayout(decoded)
                     if (folderReadingMode != FolderReadingMode.WEBTOON_SCROLL) {
                         binding.readingContentContainer.doOnLayout {
-                            if (!isAdded || _binding == null || currentBitmap !== bitmap) return@doOnLayout
+                            if (!isAdded || _binding == null || currentDecodedImage !== decoded) return@doOnLayout
                             binding.readingScrollContainer.scrollTo(0, 0)
-                            imageTransformController.reset(bitmap, readingDisplayMode)
+                            imageTransformController.resetContent(decoded.displayWidth, decoded.displayHeight, readingDisplayMode)
                             updateOverlay(translation, bitmap)
                             if (shouldAnimate) {
                                 startPageTransition(previousPageSnapshot, direction)
@@ -453,7 +459,7 @@ class ReadingFragment : Fragment() {
                     finishPageTransitionImmediately()
                 }
             }
-            if (translation == null && bitmap != null) {
+            if (translation == null && decoded != null) {
                 startTranslationWatcher(imageFile)
             } else {
                 translationWatchJob?.cancel()
@@ -471,6 +477,7 @@ class ReadingFragment : Fragment() {
         hideResizePanel()
         currentImageFile = null
         currentTranslation = null
+        currentDecodedImage = null
         currentBitmap = null
         currentImageWidth = 0
         currentImageHeight = 0
@@ -713,7 +720,7 @@ class ReadingFragment : Fragment() {
     private fun completePageTransition(generation: Int) {
         if (_binding == null || generation != pageTransitionGeneration) return
         finishPageTransitionImmediately()
-        if (currentBitmap != null) {
+        if (currentDecodedImage != null) {
             updateOverlay(currentTranslation, currentBitmap)
         }
     }
@@ -734,7 +741,7 @@ class ReadingFragment : Fragment() {
         binding.readingTransitionImage.translationX = 0f
         binding.readingTransitionImage.alpha = 1f
         binding.readingTransitionImage.visibility = View.GONE
-        applyReadingImageLayerMode(currentBitmap)
+        applyReadingImageLayerMode(currentDecodedImage)
         binding.readingTransitionImage.setLayerType(View.LAYER_TYPE_NONE, null)
         binding.readingTransitionImage.post {
             if (_binding == null) return@post
@@ -784,12 +791,12 @@ class ReadingFragment : Fragment() {
 
     private fun applyReadingDisplayMode() {
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) return
-        val bitmap = currentBitmap ?: return
-        val mode = resolveReadingDisplayMode(bitmap)
+        val decoded = currentDecodedImage ?: return
+        val mode = resolveReadingDisplayMode(decoded)
         if (mode == readingDisplayMode) return
         readingDisplayMode = mode
-        imageTransformController.reset(bitmap, readingDisplayMode)
-        updateOverlay(currentTranslation, bitmap)
+        imageTransformController.resetContent(decoded.displayWidth, decoded.displayHeight, readingDisplayMode)
+        updateOverlay(currentTranslation, currentBitmap)
     }
 
     private suspend fun loadBitmap(imageFile: java.io.File): DecodedReadingBitmap? = withContext(Dispatchers.IO) {
@@ -841,19 +848,16 @@ class ReadingFragment : Fragment() {
         imageTransformController.toggleDoubleTapZoom(x, y)
     }
 
-    private fun resolveReadingDisplayMode(bitmap: Bitmap?): ReadingDisplayMode {
-        return if (bitmap != null && isLongImage(currentImageWidth.takeIf { it > 0 } ?: bitmap.width, currentImageHeight.takeIf { it > 0 } ?: bitmap.height)) {
+    private fun resolveReadingDisplayMode(decoded: DecodedReadingBitmap?): ReadingDisplayMode {
+        return if (decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)) {
             ReadingDisplayMode.FIT_WIDTH
         } else {
             settingsStore.loadReadingDisplayMode()
         }
     }
 
-    private fun applyReadingImageLayerMode(bitmap: Bitmap?) {
-        val isLong = bitmap != null && isLongImage(
-            currentImageWidth.takeIf { it > 0 } ?: bitmap.width,
-            currentImageHeight.takeIf { it > 0 } ?: bitmap.height
-        )
+    private fun applyReadingImageLayerMode(decoded: DecodedReadingBitmap?) {
+        val isLong = decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)
         binding.readingImage.setLayerType(
             if (isLong) View.LAYER_TYPE_SOFTWARE else View.LAYER_TYPE_NONE,
             null
@@ -1003,7 +1007,7 @@ class ReadingFragment : Fragment() {
             stopWebtoonTranslationWatcher()
         }
         syncWebtoonEditSession()
-        updateReadingContentLayout(currentBitmap)
+        updateReadingContentLayout(currentDecodedImage)
         updateReadingInteractionState()
         updateEditButtonState()
     }
@@ -1026,12 +1030,12 @@ class ReadingFragment : Fragment() {
         binding.translationOverlay.setTouchPassthroughEnabled(isWebtoonScroll)
     }
 
-    private fun updateReadingContentLayout(bitmap: Bitmap?) {
+    private fun updateReadingContentLayout(decoded: DecodedReadingBitmap?) {
         val contentParams = binding.readingContentContainer.layoutParams as FrameLayout.LayoutParams
         val imageParams = binding.readingImage.layoutParams as FrameLayout.LayoutParams
         val transitionImageParams = binding.readingTransitionImage.layoutParams as FrameLayout.LayoutParams
         val overlayParams = binding.translationOverlay.layoutParams as FrameLayout.LayoutParams
-        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL && bitmap != null) {
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL && decoded != null) {
             contentParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
             imageParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
             transitionImageParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1051,7 +1055,7 @@ class ReadingFragment : Fragment() {
                     updateWebtoonChildHeight(binding.readingContentContainer, imageHeight)
                     updateWebtoonChildHeight(binding.readingTransitionImage, imageHeight)
                     updateWebtoonChildHeight(binding.translationOverlay, imageHeight)
-                    updateOverlay(currentTranslation, bitmap)
+                    updateOverlay(currentTranslation, currentBitmap)
                 }
             }
         } else {

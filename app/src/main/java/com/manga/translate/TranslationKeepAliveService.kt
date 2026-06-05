@@ -133,6 +133,10 @@ class TranslationKeepAliveService : Service() {
         if (translationJob?.isActive == true) return
         taskPersistence.save(descriptor)
         acquireWakeLock()
+        val translationActionsCallback: (Boolean) -> Unit = { enabled ->
+            LibraryUiBridge.setTranslationActionsEnabled(enabled)
+        }
+        translationActionsCallback(false)
         val coordinator = applicationContext.appContainer.createFolderTranslationCoordinator(
             translationPipeline = applicationContext.appContainer.createTranslationPipeline(),
             ui = ServiceLibraryUiCallbacks
@@ -143,6 +147,7 @@ class TranslationKeepAliveService : Service() {
                 getString(R.string.translation_keepalive_title),
                 getString(R.string.translation_failed)
             )
+            translationActionsCallback(true)
             taskPersistence.clear()
             releaseWakeLock()
             stopSelf()
@@ -156,6 +161,7 @@ class TranslationKeepAliveService : Service() {
                         getString(R.string.translation_keepalive_title),
                         getString(R.string.translation_failed)
                     )
+                    translationActionsCallback(true)
                     taskPersistence.clear()
                     releaseWakeLock()
                     stopSelf()
@@ -165,14 +171,14 @@ class TranslationKeepAliveService : Service() {
                     scope = serviceScope,
                     collectionFolder = collectionFolder,
                     tasks = tasks,
-                    onTranslateEnabled = { }
+                    onTranslateEnabled = translationActionsCallback
                 )
             }
             TranslationTaskPersistence.MODE_BATCH -> {
                 coordinator.translateBatch(
                     scope = serviceScope,
                     tasks = tasks,
-                    onTranslateEnabled = { }
+                    onTranslateEnabled = translationActionsCallback
                 )
             }
             else -> {
@@ -186,18 +192,20 @@ class TranslationKeepAliveService : Service() {
                     glossaryProcessingEnabled = first.glossaryProcessingEnabled,
                     useVlDirectTranslate = first.useVlDirectTranslate,
                     language = first.language,
-                    onTranslateEnabled = { }
+                    onTranslateEnabled = translationActionsCallback
                 )
             }
         }
         if (translationJob == null) {
             // The coordinator may return null when everything is already done,
             // inputs are empty, or startup validation fails before launching a job.
+            translationActionsCallback(true)
             stopIdleTranslationTask(clearPersistedTask = true)
             return
         }
         translationJob?.invokeOnCompletion {
             translationJob = null
+            translationActionsCallback(true)
             taskPersistence.clear()
             releaseWakeLock()
             stopSelf()

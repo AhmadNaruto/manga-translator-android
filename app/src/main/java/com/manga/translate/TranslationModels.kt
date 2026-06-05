@@ -249,10 +249,23 @@ data class TranslationResult(
 
 fun TranslationResult.deriveStatus(): PageTranslationStatus {
     if (bubbles.isEmpty()) return PageTranslationStatus.SUCCESS
-    val translated = bubbles.count {
+    val statusBubbles = if (
+        metadata.mode == TranslationMetadata.MODE_STANDARD ||
+        metadata.mode == TranslationMetadata.MODE_FULL_PAGE
+    ) {
+        bubbles.filter {
+            it.originalText.isNotBlank() ||
+                it.translationState == BubbleTranslationState.TRANSLATED ||
+                it.translatedText.isNotBlank()
+        }
+    } else {
+        bubbles
+    }
+    if (statusBubbles.isEmpty()) return PageTranslationStatus.SUCCESS
+    val translated = statusBubbles.count {
         it.translationState == BubbleTranslationState.TRANSLATED && it.translatedText.isNotBlank()
     }
-    return if (translated == bubbles.size) {
+    return if (translated == statusBubbles.size) {
         PageTranslationStatus.SUCCESS
     } else {
         PageTranslationStatus.PARTIAL

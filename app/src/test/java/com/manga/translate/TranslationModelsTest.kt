@@ -1,0 +1,57 @@
+package com.manga.translate
+
+import android.graphics.RectF
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
+@RunWith(RobolectricTestRunner::class)
+class TranslationModelsTest {
+    @Test
+    fun `standard status ignores bubbles without ocr text`() {
+        val result = TranslationResult(
+            imageName = "page.jpg",
+            width = 1000,
+            height = 1600,
+            bubbles = buildList {
+                repeat(43) { index ->
+                    add(
+                        BubbleTranslation.translated(
+                            id = index,
+                            rect = rect(index),
+                            originalText = "source $index",
+                            translatedText = "translated $index"
+                        )
+                    )
+                }
+                add(BubbleTranslation.pending(43, rect(43), originalText = ""))
+                add(BubbleTranslation.pending(44, rect(44), originalText = ""))
+            },
+            metadata = TranslationMetadata(mode = TranslationMetadata.MODE_STANDARD)
+        )
+
+        assertEquals(PageTranslationStatus.SUCCESS, result.deriveStatus())
+    }
+
+    @Test
+    fun `vl status still requires every detected bubble to translate`() {
+        val result = TranslationResult(
+            imageName = "page.jpg",
+            width = 1000,
+            height = 1600,
+            bubbles = listOf(
+                BubbleTranslation.translated(0, rect(0), translatedText = "translated"),
+                BubbleTranslation.pending(1, rect(1), originalText = "")
+            ),
+            metadata = TranslationMetadata(mode = TranslationMetadata.MODE_VL_DIRECT)
+        )
+
+        assertEquals(PageTranslationStatus.PARTIAL, result.deriveStatus())
+    }
+
+    private fun rect(index: Int): RectF {
+        val top = index * 10f
+        return RectF(0f, top, 100f, top + 8f)
+    }
+}

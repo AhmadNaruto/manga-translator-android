@@ -46,14 +46,14 @@ class ReadingImageTransformController(
 
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 if (!isScaling) return false
-                val bitmap = currentBitmap ?: return false
+                if (!hasContent()) return false
                 val newScale = (imageUserScale * detector.scaleFactor).coerceIn(minScale, maxScale)
                 val factor = newScale / imageUserScale
                 if (abs(factor - 1f) <= 0.001f) return false
                 imageMatrix.postScale(factor, factor, detector.focusX, detector.focusY)
                 imageUserScale = newScale
                 scaleHandled = true
-                fixTranslation(bitmap)
+                fixTranslation()
                 applyImageMatrix()
                 return true
             }
@@ -66,6 +66,8 @@ class ReadingImageTransformController(
     )
 
     private var currentBitmap: Bitmap? = null
+    private var contentWidth: Int = 0
+    private var contentHeight: Int = 0
 
     init {
         imageView.scaleType = ImageView.ScaleType.MATRIX
@@ -74,17 +76,31 @@ class ReadingImageTransformController(
 
     fun setCurrentBitmap(bitmap: Bitmap?) {
         currentBitmap = bitmap
+        contentWidth = bitmap?.width ?: 0
+        contentHeight = bitmap?.height ?: 0
+    }
+
+    fun setCurrentContent(width: Int, height: Int) {
+        currentBitmap = null
+        contentWidth = width.coerceAtLeast(0)
+        contentHeight = height.coerceAtLeast(0)
     }
 
     fun reset(bitmap: Bitmap, mode: ReadingDisplayMode) {
-        currentBitmap = bitmap
+        resetContent(bitmap.width, bitmap.height, mode)
+    }
+
+    fun resetContent(width: Int, height: Int, mode: ReadingDisplayMode) {
+        contentWidth = width.coerceAtLeast(0)
+        contentHeight = height.coerceAtLeast(0)
         imageView.scaleType = ImageView.ScaleType.MATRIX
         imageView.adjustViewBounds = false
         val viewWidth = imageView.width.toFloat()
         val viewHeight = imageView.height.toFloat()
         if (viewWidth <= 0f || viewHeight <= 0f) return
-        val drawableWidth = bitmap.width.toFloat()
-        val drawableHeight = bitmap.height.toFloat()
+        if (!hasContent()) return
+        val drawableWidth = contentWidth.toFloat()
+        val drawableHeight = contentHeight.toFloat()
         val scale = when (mode) {
             ReadingDisplayMode.FIT_WIDTH -> viewWidth / drawableWidth
             ReadingDisplayMode.FIT_HEIGHT -> viewHeight / drawableHeight
@@ -107,13 +123,13 @@ class ReadingImageTransformController(
     }
 
     fun handleTouch(event: MotionEvent): Boolean {
-        val bitmap = currentBitmap ?: return false
+        if (!hasContent()) return false
         scaleDetector.onTouchEvent(event)
         if (event.pointerCount > 1) {
             return true
         }
         val zoomed = imageUserScale > minScale + 0.01f
-        val overflowAxes = if (allowPanWhenOverflowing) computeOverflowAxes(bitmap) else OverflowAxes()
+        val overflowAxes = if (allowPanWhenOverflowing) computeOverflowAxes() else OverflowAxes()
         val allowPan = (zoomed || overflowAxes.any) && !hasBubbleAt(event.x, event.y)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -156,7 +172,7 @@ class ReadingImageTransformController(
                         val dx = if (panHorizontal) event.x - lastTouchX else 0f
                         val dy = if (panVertical) event.y - lastTouchY else 0f
                         imageMatrix.postTranslate(dx, dy)
-                        fixTranslation(bitmap)
+                        fixTranslation()
                         applyImageMatrix()
                         lastTouchX = event.x
                         lastTouchY = event.y
@@ -181,7 +197,7 @@ class ReadingImageTransformController(
     }
 
     fun toggleDoubleTapZoom(x: Float, y: Float): Boolean {
-        val bitmap = currentBitmap ?: return false
+        if (!hasContent()) return false
         if (imageView.width <= 0 || imageView.height <= 0) return false
         if (isZoomed()) {
             imageMatrix.set(baseMatrix)
@@ -191,7 +207,7 @@ class ReadingImageTransformController(
             val factor = targetScale / imageUserScale
             imageMatrix.postScale(factor, factor, x, y)
             imageUserScale = targetScale
-            fixTranslation(bitmap)
+            fixTranslation()
         }
         applyImageMatrix()
         return true
@@ -206,7 +222,7 @@ class ReadingImageTransformController(
     }
 
     fun resetZoom() {
-        if (currentBitmap == null) return
+        if (!hasContent()) return
         imageMatrix.set(baseMatrix)
         imageUserScale = minScale
         applyImageMatrix()
@@ -234,11 +250,12 @@ class ReadingImageTransformController(
         onMatrixUpdated()
     }
 
-    private fun fixTranslation(bitmap: Bitmap) {
+    private fun fixTranslation() {
         val viewWidth = imageView.width.toFloat()
         val viewHeight = imageView.height.toFloat()
         if (viewWidth <= 0f || viewHeight <= 0f) return
-        imageRect.set(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
+        if (!hasContent()) return
+        imageRect.set(0f, 0f, contentWidth.toFloat(), contentHeight.toFloat())
         imageMatrix.mapRect(imageRect)
         var dx = 0f
         var dy = 0f
@@ -257,11 +274,12 @@ class ReadingImageTransformController(
         imageMatrix.postTranslate(dx, dy)
     }
 
-    private fun computeOverflowAxes(bitmap: Bitmap): OverflowAxes {
+    private fun computeOverflowAxes(): OverflowAxes {
         val viewWidth = imageView.width.toFloat()
         val viewHeight = imageView.height.toFloat()
         if (viewWidth <= 0f || viewHeight <= 0f) return OverflowAxes()
-        imageRect.set(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
+        if (!hasContent()) return OverflowAxes()
+        imageRect.set(0f, 0f, contentWidth.toFloat(), contentHeight.toFloat())
         imageMatrix.mapRect(imageRect)
         return OverflowAxes(
             horizontal = imageRect.width() > viewWidth + 0.5f,
@@ -275,5 +293,9 @@ class ReadingImageTransformController(
     ) {
         val any: Boolean
             get() = horizontal || vertical
+    }
+
+    private fun hasContent(): Boolean {
+        return contentWidth > 0 && contentHeight > 0
     }
 }
