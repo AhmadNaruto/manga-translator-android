@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.os.Build
 import kotlin.math.max
 
 data class DecodedReadingBitmap(
@@ -69,12 +70,14 @@ object ReadingBitmapDecoder {
         )
     }
 
-    private fun calculateInSampleSize(
+    internal fun calculateInSampleSize(
         sourceWidth: Int,
         sourceHeight: Int,
         targetWidth: Int,
         targetHeight: Int
     ): Int {
+        val preserveReadableWidth = shouldUseLongImageTiling(sourceWidth, sourceHeight)
+        val minReadableWidth = (targetWidth / DETAIL_MULTIPLIER).coerceAtLeast(1)
         var sample = 1
         while (
             sourceWidth / (sample * 2) >= targetWidth &&
@@ -86,12 +89,18 @@ object ReadingBitmapDecoder {
             sourceWidth / (sample * 2) >= MAX_LONG_EDGE ||
             sourceHeight / (sample * 2) >= MAX_LONG_EDGE
         ) {
+            if (preserveReadableWidth && sourceWidth / (sample * 2) < minReadableWidth) {
+                break
+            }
             sample *= 2
         }
         while (
             sourceWidth.toLong() * sourceHeight.toLong() / ((sample * 2).toLong() * (sample * 2).toLong())
             > MAX_TOTAL_PIXELS
         ) {
+            if (preserveReadableWidth && sourceWidth / (sample * 2) < minReadableWidth) {
+                break
+            }
             sample *= 2
         }
         return max(sample, 1)
@@ -117,7 +126,7 @@ object ReadingBitmapDecoder {
             tag = "ReadingDecoderTiled"
         ) {
             val regionDecoder = runCatching {
-                BitmapRegionDecoder.newInstance(imageFile.absolutePath, false)
+                createBitmapRegionDecoder(imageFile)
             }.getOrNull() ?: return@withDecodePermit null
             try {
                 val targetBitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.RGB_565)
@@ -161,6 +170,16 @@ object ReadingBitmapDecoder {
         val rawHeight = (sampledBudget / safeWidth).toInt()
         val roundedHeight = (rawHeight / sampleSize).coerceAtLeast(1) * sampleSize
         return roundedHeight.coerceAtLeast(sampleSize * 256).coerceAtMost(sourceHeight)
+    }
+
+    private fun createBitmapRegionDecoder(imageFile: java.io.File): BitmapRegionDecoder {
+        val path = imageFile.absolutePath
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            BitmapRegionDecoder.newInstance(path)
+        } else {
+            @Suppress("DEPRECATION")
+            BitmapRegionDecoder.newInstance(path, false)
+        }
     }
 
     private fun ceilDiv(value: Int, divisor: Int): Int {

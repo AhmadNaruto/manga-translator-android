@@ -13,6 +13,13 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+internal const val DETECTION_MAX_EDGE = 1920
+
+internal data class PipelineImageSize(
+    val width: Int,
+    val height: Int
+)
+
 data class PipelineDetectionBitmap(
     val bitmap: Bitmap,
     val sourceWidth: Int,
@@ -26,7 +33,6 @@ data class PipelineDetectionBitmap(
 }
 
 internal object PipelineBitmapDecoder {
-    private const val DETECTION_MAX_EDGE = 1920
     private const val OCR_CROP_MAX_EDGE = 2048
 
     suspend fun decodeForDetection(
@@ -74,6 +80,22 @@ internal object PipelineBitmapDecoder {
         return PipelineDetectionBitmap(bitmap, sourceWidth, sourceHeight)
     }
 
+    fun readImageSize(imageFile: File): PipelineImageSize? {
+        if (ImageFileSupport.isAvifFile(imageFile.name)) {
+            val size = AvifBitmapDecoder.getSize(imageFile) ?: return null
+            return PipelineImageSize(size.width, size.height)
+        }
+
+        val bounds = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
+        val sourceWidth = bounds.outWidth
+        val sourceHeight = bounds.outHeight
+        if (sourceWidth <= 0 || sourceHeight <= 0) return null
+        return PipelineImageSize(sourceWidth, sourceHeight)
+    }
+
     suspend fun prepareDetectionBitmap(
         source: Bitmap,
         maxEdge: Int = DETECTION_MAX_EDGE
@@ -105,6 +127,10 @@ internal object PipelineBitmapDecoder {
         } else {
             FileBitmapRegionCropSource(imageFile)
         }
+    }
+
+    fun openCropSource(bitmap: Bitmap): BitmapCropSource {
+        return InMemoryBitmapCropSource(bitmap)
     }
 
     private fun targetSize(width: Int, height: Int, maxEdge: Int): Pair<Int, Int> {
@@ -210,6 +236,22 @@ internal object PipelineBitmapDecoder {
         }
     }
 
+    private class InMemoryBitmapCropSource(
+        private val bitmap: Bitmap
+    ) : BitmapCropSource {
+        override val width: Int
+            get() = bitmap.width
+        override val height: Int
+            get() = bitmap.height
+
+        override suspend fun decodeRegion(rect: RectF, maxEdge: Int): Bitmap? {
+            val crop = cropBitmap(bitmap, rect) ?: return null
+            return scaleDownIfNeeded(crop, maxEdge)
+        }
+
+        override fun close() = Unit
+    }
+
     internal suspend fun scaleDownIfNeeded(bitmap: Bitmap, maxEdge: Int = OCR_CROP_MAX_EDGE): Bitmap {
         val longestEdge = max(bitmap.width, bitmap.height).coerceAtLeast(1)
         if (longestEdge <= maxEdge) return bitmap
@@ -264,11 +306,12 @@ internal fun PageRegionDetectionResult.remapToSource(
         textRects = textRects.map { rect -> rect.scaleBy(scaleX, scaleY) },
         regions = regions.map { region ->
             region.copy(rect = region.rect.scaleBy(scaleX, scaleY))
-        }
+        },
+        detectionMode = detectionMode
     )
 }
 
-private fun RectF.scaleBy(scaleX: Float, scaleY: Float): RectF {
+internal fun RectF.scaleBy(scaleX: Float, scaleY: Float): RectF {
     return RectF(
         left * scaleX,
         top * scaleY,

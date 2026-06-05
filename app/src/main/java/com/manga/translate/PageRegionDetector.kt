@@ -3,8 +3,120 @@ package com.manga.translate
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
+
+internal enum class PageRegionDetectionMode {
+    FULL,
+    TILED_LONG
+}
+
+internal data class DetectionTile(
+    val top: Int,
+    val bottom: Int,
+    val width: Int
+) {
+    val height: Int
+        get() = bottom - top
+
+    fun toRectF(): RectF {
+        return RectF(0f, top.toFloat(), width.toFloat(), bottom.toFloat())
+    }
+}
+
+internal data class BubblePriorityCandidate(
+    val confidence: Float,
+    val hasMaskContour: Boolean,
+    val area: Float
+)
+
+internal fun shouldUseLongImageTiling(pageWidth: Int, pageHeight: Int): Boolean {
+    if (pageWidth <= 0 || pageHeight <= 0) return false
+    if (pageHeight < LONG_IMAGE_MIN_HEIGHT_PX) return false
+    return pageHeight / pageWidth.toFloat() >= LONG_IMAGE_ASPECT_THRESHOLD
+}
+
+internal fun planLongImageDetectionTiles(
+    pageWidth: Int,
+    pageHeight: Int
+): List<DetectionTile> {
+    if (pageWidth <= 0 || pageHeight <= 0) return emptyList()
+    val tileHeight = (pageWidth * LONG_IMAGE_TILE_HEIGHT_WIDTH_RATIO).roundToInt()
+        .coerceIn(LONG_IMAGE_TILE_MIN_HEIGHT_PX, LONG_IMAGE_TILE_MAX_HEIGHT_PX)
+        .coerceAtMost(pageHeight)
+    val overlapHeight = max(
+        (tileHeight * LONG_IMAGE_TILE_OVERLAP_RATIO).roundToInt(),
+        LONG_IMAGE_TILE_OVERLAP_MIN_PX
+    ).coerceAtMost(max(0, tileHeight - 1))
+    val step = max(1, tileHeight - overlapHeight)
+    val tops = LinkedHashSet<Int>()
+    var top = 0
+    while (top < pageHeight) {
+        tops.add(top)
+        if (top + tileHeight >= pageHeight) break
+        top += step
+    }
+    val lastTop = tops.maxOrNull() ?: 0
+    if (lastTop + tileHeight < pageHeight) {
+        tops.add(max(0, pageHeight - tileHeight))
+    }
+    return tops.sorted().map { tileTop ->
+        DetectionTile(
+            top = tileTop,
+            bottom = min(pageHeight, tileTop + tileHeight),
+            width = pageWidth
+        )
+    }
+}
+
+internal fun remapTileMaskContourToPage(
+    contour: FloatArray,
+    tileTop: Int,
+    tileHeight: Int,
+    pageWidth: Int,
+    pageHeight: Int,
+    tileLeft: Int = 0,
+    tileWidth: Int = pageWidth
+): FloatArray {
+    if (contour.isEmpty()) return contour
+    val result = FloatArray(contour.size)
+    val safePageWidth = pageWidth.coerceAtLeast(1)
+    val safePageHeight = pageHeight.coerceAtLeast(1)
+    val safeTileWidth = tileWidth.coerceAtLeast(1)
+    val safeTileHeight = tileHeight.coerceAtLeast(1)
+    var index = 0
+    while (index + 1 < contour.size) {
+        val x = contour[index].coerceIn(0f, 1f)
+        val y = contour[index + 1].coerceIn(0f, 1f)
+        result[index] = ((tileLeft + x * safeTileWidth) / safePageWidth.toFloat()).coerceIn(0f, 1f)
+        result[index + 1] = ((tileTop + y * safeTileHeight) / safePageHeight.toFloat()).coerceIn(0f, 1f)
+        index += 2
+    }
+    return result
+}
+
+internal fun choosePreferredBubbleCandidateIndex(
+    candidates: List<BubblePriorityCandidate>
+): Int {
+    if (candidates.isEmpty()) return -1
+    var bestIndex = 0
+    for (index in 1 until candidates.size) {
+        if (compareBubblePriority(candidates[index], candidates[bestIndex]) > 0) {
+            bestIndex = index
+        }
+    }
+    return bestIndex
+}
+
+internal fun shouldTreatRectsAsSameBubbleForDedup(a: RectF, b: RectF): Boolean {
+    if (rectIou(a, b) >= BUBBLE_DEDUP_IOU_THRESHOLD) return true
+    val minArea = min(rectAreaValue(a), rectAreaValue(b)).coerceAtLeast(1f)
+    val overlapOverMin = rectIntersectionArea(a, b) / minArea
+    return overlapOverMin >= BUBBLE_DEDUP_CONTAINMENT_THRESHOLD &&
+        (rectContains(a, b) || rectContains(b, a))
+}
 
 internal class PageRegionDetector(
     context: Context,
@@ -15,25 +127,211 @@ internal class PageRegionDetector(
     private var textDetector: TextDetector? = null
 
     fun detect(bitmap: Bitmap, logTag: String = "PageRegionDetector"): PageRegionDetectionResult? {
+        return detectSingleBitmap(bitmap, logTag, PageRegionDetectionMode.FULL)
+    }
+
+    suspend fun detect(
+        cropSource: BitmapCropSource,
+        pageWidth: Int,
+        pageHeight: Int,
+        logTag: String = "PageRegionDetector"
+    ): PageRegionDetectionResult? {
+        if (!shouldUseLongImageTiling(pageWidth, pageHeight)) {
+            return detectFullPage(cropSource, pageWidth, pageHeight, logTag)
+        }
+        return try {
+            detectTiledLongImage(cropSource, pageWidth, pageHeight, logTag)
+                ?: run {
+                    AppLogger.log(logTag, "Long-image tiled detection returned null, fallback to full-page")
+                    detectFullPage(cropSource, pageWidth, pageHeight, logTag)
+                }
+        } catch (e: Exception) {
+            AppLogger.log(logTag, "Long-image tiled detection failed, fallback to full-page", e)
+            detectFullPage(cropSource, pageWidth, pageHeight, logTag)
+        }
+    }
+
+    private suspend fun detectFullPage(
+        cropSource: BitmapCropSource,
+        pageWidth: Int,
+        pageHeight: Int,
+        logTag: String
+    ): PageRegionDetectionResult? {
+        val fullBitmap = cropSource.decodeRegion(
+            RectF(0f, 0f, pageWidth.toFloat(), pageHeight.toFloat()),
+            maxEdge = DETECTION_MAX_EDGE
+        ) ?: return null
+        return try {
+            detectSingleBitmap(fullBitmap, logTag, PageRegionDetectionMode.FULL)
+                ?.remapToSource(pageWidth, pageHeight)
+                ?.copy(detectionMode = PageRegionDetectionMode.FULL)
+        } finally {
+            fullBitmap.recycleSafely()
+        }
+    }
+
+    private suspend fun detectTiledLongImage(
+        cropSource: BitmapCropSource,
+        pageWidth: Int,
+        pageHeight: Int,
+        logTag: String
+    ): PageRegionDetectionResult? {
+        val tiles = planLongImageDetectionTiles(pageWidth, pageHeight)
+        if (tiles.isEmpty()) return null
+        val bubbleDetections = ArrayList<BubbleDetection>()
+        val textRects = ArrayList<RectF>()
+        for ((index, tile) in tiles.withIndex()) {
+            val tileBitmap = cropSource.decodeRegion(tile.toRectF(), maxEdge = DETECTION_MAX_EDGE)
+                ?: return null
+            try {
+                val tileResult = detectSingleBitmap(
+                    bitmap = tileBitmap,
+                    logTag = "$logTag[tile ${index + 1}/${tiles.size}]",
+                    detectionMode = PageRegionDetectionMode.TILED_LONG
+                ) ?: return null
+                val mapped = remapTileResultToPage(tileResult, tile, pageWidth, pageHeight)
+                bubbleDetections.addAll(mapped.bubbleDetections)
+                textRects.addAll(mapped.textRects)
+            } finally {
+                tileBitmap.recycleSafely()
+            }
+        }
+        val deduplicatedBubbles = deduplicateBubbleDetections(bubbleDetections)
+        val filteredTextRects = filterOverlapping(
+            textRects = textRects,
+            bubbleRects = deduplicatedBubbles.map { it.rect },
+            threshold = TEXT_IOU_THRESHOLD
+        )
+        val mergedTextRects = RectGeometryDeduplicator.mergeSupplementRects(
+            filteredTextRects,
+            pageWidth,
+            pageHeight
+        )
+        if (mergedTextRects.isNotEmpty()) {
+            AppLogger.log(logTag, "Supplemented ${mergedTextRects.size} text boxes after tile merge")
+        }
+        return buildDetectionResult(
+            width = pageWidth,
+            height = pageHeight,
+            detections = deduplicatedBubbles,
+            textRects = mergedTextRects,
+            detectionMode = PageRegionDetectionMode.TILED_LONG
+        )
+    }
+
+    private fun detectSingleBitmap(
+        bitmap: Bitmap,
+        logTag: String,
+        detectionMode: PageRegionDetectionMode
+    ): PageRegionDetectionResult? {
         val bubbleDetector = getBubbleDetector(logTag) ?: return null
         val detections = filterTinyBubbleDetections(
             detections = bubbleDetector.detect(bitmap),
             bitmap = bitmap,
             logTag = logTag
         )
-        val bubbleRects = detections.map { it.rect }
         val textRects = detectSupplementTextRects(bitmap, detections)
         if (textRects.isNotEmpty()) {
             AppLogger.log(logTag, "Supplemented ${textRects.size} text boxes")
         }
-        val regions = buildRegions(detections, bubbleRects, textRects)
-        return PageRegionDetectionResult(
+        return buildDetectionResult(
             width = bitmap.width,
             height = bitmap.height,
+            detections = detections,
+            textRects = textRects,
+            detectionMode = detectionMode
+        )
+    }
+
+    private fun buildDetectionResult(
+        width: Int,
+        height: Int,
+        detections: List<BubbleDetection>,
+        textRects: List<RectF>,
+        detectionMode: PageRegionDetectionMode
+    ): PageRegionDetectionResult {
+        val bubbleRects = detections.map { it.rect }
+        val regions = buildRegions(detections, bubbleRects, textRects)
+        return PageRegionDetectionResult(
+            width = width,
+            height = height,
             bubbleDetections = detections,
             textRects = textRects,
-            regions = regions
+            regions = regions,
+            detectionMode = detectionMode
         )
+    }
+
+    private fun remapTileResultToPage(
+        tileResult: PageRegionDetectionResult,
+        tile: DetectionTile,
+        pageWidth: Int,
+        pageHeight: Int
+    ): PageRegionDetectionResult {
+        val scaleX = tile.width / tileResult.width.toFloat().coerceAtLeast(1f)
+        val scaleY = tile.height / tileResult.height.toFloat().coerceAtLeast(1f)
+        return PageRegionDetectionResult(
+            width = pageWidth,
+            height = pageHeight,
+            bubbleDetections = tileResult.bubbleDetections.map { detection ->
+                detection.copy(
+                    rect = detection.rect.scaleBy(scaleX, scaleY).offsetBy(0f, tile.top.toFloat()),
+                    maskContour = detection.maskContour?.let {
+                        remapTileMaskContourToPage(
+                            contour = it,
+                            tileTop = tile.top,
+                            tileHeight = tile.height,
+                            pageWidth = pageWidth,
+                            pageHeight = pageHeight
+                        )
+                    }
+                )
+            },
+            textRects = tileResult.textRects.map { rect ->
+                rect.scaleBy(scaleX, scaleY).offsetBy(0f, tile.top.toFloat())
+            },
+            regions = emptyList(),
+            detectionMode = PageRegionDetectionMode.TILED_LONG
+        )
+    }
+
+    private fun deduplicateBubbleDetections(
+        detections: List<BubbleDetection>
+    ): List<BubbleDetection> {
+        if (detections.size <= 1) return detections
+        val visited = BooleanArray(detections.size)
+        val result = ArrayList<BubbleDetection>(detections.size)
+        for (start in detections.indices) {
+            if (visited[start]) continue
+            val queue = ArrayDeque<Int>()
+            val component = ArrayList<Int>()
+            queue.add(start)
+            visited[start] = true
+            while (queue.isNotEmpty()) {
+                val current = queue.removeFirst()
+                component.add(current)
+                for (next in detections.indices) {
+                    if (visited[next]) continue
+                    if (!shouldTreatAsSameBubble(detections[current].rect, detections[next].rect)) continue
+                    visited[next] = true
+                    queue.add(next)
+                }
+            }
+            val candidates = component.map { index ->
+                BubblePriorityCandidate(
+                    confidence = detections[index].confidence,
+                    hasMaskContour = detections[index].maskContour != null,
+                    area = rectAreaValue(detections[index].rect)
+                )
+            }
+            val bestOffset = choosePreferredBubbleCandidateIndex(candidates).coerceAtLeast(0)
+            result.add(detections[component[bestOffset]])
+        }
+        return result
+    }
+
+    private fun shouldTreatAsSameBubble(a: RectF, b: RectF): Boolean {
+        return shouldTreatRectsAsSameBubbleForDedup(a, b)
     }
 
     private fun getBubbleDetector(logTag: String): BubbleDetector? {
@@ -182,22 +480,13 @@ internal class PageRegionDetector(
     }
 
     private fun iou(a: RectF, b: RectF): Float {
-        val left = max(a.left, b.left)
-        val top = max(a.top, b.top)
-        val right = min(a.right, b.right)
-        val bottom = min(a.bottom, b.bottom)
-        val inter = max(0f, right - left) * max(0f, bottom - top)
-        val areaA = max(0f, a.width()) * max(0f, a.height())
-        val areaB = max(0f, b.width()) * max(0f, b.height())
-        val union = areaA + areaB - inter
+        val inter = rectIntersectionArea(a, b)
+        val union = rectAreaValue(a) + rectAreaValue(b) - inter
         return if (union <= 0f) 0f else inter / union
     }
 
     private fun contains(outer: RectF, inner: RectF): Boolean {
-        return outer.left <= inner.left &&
-            outer.top <= inner.top &&
-            outer.right >= inner.right &&
-            outer.bottom >= inner.bottom
+        return rectContains(outer, inner)
     }
 
     companion object {
@@ -212,17 +501,82 @@ internal class PageRegionDetector(
     }
 }
 
-data class PageRegion(
+private fun compareBubblePriority(
+    candidate: BubblePriorityCandidate,
+    currentBest: BubblePriorityCandidate
+): Int {
+    val confidenceDiff = candidate.confidence - currentBest.confidence
+    if (abs(confidenceDiff) >= 0.02f) {
+        return if (confidenceDiff > 0f) 1 else -1
+    }
+    if (candidate.hasMaskContour != currentBest.hasMaskContour) {
+        return if (candidate.hasMaskContour) 1 else -1
+    }
+    if (confidenceDiff != 0f) {
+        return if (confidenceDiff > 0f) 1 else -1
+    }
+    if (candidate.area != currentBest.area) {
+        return if (candidate.area > currentBest.area) 1 else -1
+    }
+    return 0
+}
+
+internal data class PageRegion(
     val id: Int,
     val rect: RectF,
     val source: BubbleSource,
     val maskContour: FloatArray? = null
 )
 
-data class PageRegionDetectionResult(
+internal data class PageRegionDetectionResult(
     val width: Int,
     val height: Int,
     val bubbleDetections: List<BubbleDetection>,
     val textRects: List<RectF>,
-    val regions: List<PageRegion>
+    val regions: List<PageRegion>,
+    val detectionMode: PageRegionDetectionMode = PageRegionDetectionMode.FULL
 )
+
+private fun RectF.offsetBy(offsetX: Float, offsetY: Float): RectF {
+    return RectF(
+        left + offsetX,
+        top + offsetY,
+        right + offsetX,
+        bottom + offsetY
+    )
+}
+
+private const val LONG_IMAGE_ASPECT_THRESHOLD = 3.0f
+private const val LONG_IMAGE_MIN_HEIGHT_PX = 4096
+private const val LONG_IMAGE_TILE_HEIGHT_WIDTH_RATIO = 2.25f
+private const val LONG_IMAGE_TILE_MIN_HEIGHT_PX = 1600
+private const val LONG_IMAGE_TILE_MAX_HEIGHT_PX = 2800
+private const val LONG_IMAGE_TILE_OVERLAP_RATIO = 0.18f
+private const val LONG_IMAGE_TILE_OVERLAP_MIN_PX = 240
+private const val BUBBLE_DEDUP_IOU_THRESHOLD = 0.65f
+private const val BUBBLE_DEDUP_CONTAINMENT_THRESHOLD = 0.9f
+
+private fun rectIou(a: RectF, b: RectF): Float {
+    val inter = rectIntersectionArea(a, b)
+    val union = rectAreaValue(a) + rectAreaValue(b) - inter
+    return if (union <= 0f) 0f else inter / union
+}
+
+private fun rectIntersectionArea(a: RectF, b: RectF): Float {
+    val left = max(a.left, b.left)
+    val top = max(a.top, b.top)
+    val right = min(a.right, b.right)
+    val bottom = min(a.bottom, b.bottom)
+    return max(0f, right - left) * max(0f, bottom - top)
+}
+
+private fun rectAreaValue(rect: RectF): Float {
+    return max(0f, rect.width()) * max(0f, rect.height())
+}
+
+private fun rectContains(outer: RectF, inner: RectF): Boolean {
+    return outer.left <= inner.left &&
+        outer.top <= inner.top &&
+        outer.right >= inner.right &&
+        outer.bottom >= inner.bottom
+}

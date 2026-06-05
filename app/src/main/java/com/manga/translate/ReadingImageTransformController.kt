@@ -90,7 +90,12 @@ class ReadingImageTransformController(
             ReadingDisplayMode.FIT_HEIGHT -> viewHeight / drawableHeight
         }
         val dx = (viewWidth - drawableWidth * scale) / 2f
-        val dy = (viewHeight - drawableHeight * scale) / 2f
+        val scaledHeight = drawableHeight * scale
+        val dy = if (mode == ReadingDisplayMode.FIT_WIDTH && scaledHeight > viewHeight) {
+            0f
+        } else {
+            (viewHeight - scaledHeight) / 2f
+        }
         baseMatrix.reset()
         baseMatrix.postScale(scale, scale)
         baseMatrix.postTranslate(dx, dy)
@@ -129,7 +134,7 @@ class ReadingImageTransformController(
                     val movedY = event.y - startTouchY
                     if (!isPanning) {
                         val canPanHorizontally = zoomed && overflowAxes.horizontal
-                        val canPanVertically = zoomed && overflowAxes.vertical
+                        val canPanVertically = overflowAxes.vertical
                         val horizontalIntent =
                             abs(movedX) > panTouchSlop && abs(movedX) >= abs(movedY)
                         val verticalIntent =

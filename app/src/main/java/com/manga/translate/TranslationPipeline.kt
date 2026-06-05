@@ -142,7 +142,7 @@ internal class TranslationPipeline(
         onProgress: (String) -> Unit
     ): PageOcrResult? = withContext(Dispatchers.Default) {
         val ocrSettings = settingsStore.loadOcrApiSettings()
-        val cacheMode = buildOcrCacheMode(ocrSettings.useLocalOcr, language)
+        val cacheMode = buildOcrCacheMode(imageFile, ocrSettings.useLocalOcr, language)
         val expectedMetadata = buildOcrMetadata(imageFile, language, ocrSettings, cacheMode)
         if (!forceOcr) {
             val cached = ocrStore.load(imageFile, expectedMetadata = expectedMetadata)
@@ -165,15 +165,14 @@ internal class TranslationPipeline(
         if (useLocalOcr && ocrEngine == null) {
             return@withContext null
         }
-        val detection = PipelineBitmapDecoder.decodeForDetection(imageFile) ?: run {
-            AppLogger.log("Pipeline", "Failed to decode ${imageFile.name}")
-            return@withContext null
-        }
-        try {
+        PipelineBitmapDecoder.openCropSource(imageFile)?.use { cropSource ->
             onProgress(appContext.getString(R.string.detecting_bubbles))
-            val pageRegions = pageRegionDetector.detect(detection.bitmap, logTag = "Pipeline")
-                ?.remapToSource(detection.sourceWidth, detection.sourceHeight)
-                ?: return@withContext null
+            val pageRegions = pageRegionDetector.detect(
+                cropSource = cropSource,
+                pageWidth = cropSource.width,
+                pageHeight = cropSource.height,
+                logTag = "Pipeline"
+            ) ?: return@withContext null
             val regions = pageRegions.regions
             AppLogger.log("Pipeline", "Detected ${regions.size} regions in ${imageFile.name}")
             if (regions.isEmpty()) {
@@ -189,59 +188,54 @@ internal class TranslationPipeline(
                 return@withContext emptyResult
             }
             val bubbles = ArrayList<OcrBubble>(regions.size)
-            PipelineBitmapDecoder.openCropSource(imageFile)?.use { cropSource ->
-                if (useLocalOcr || ocrSettings.apiOcrConcurrencyLimit <= 1) {
-                    for (region in regions) {
-                        val text = recognizeRegionFromSource(
-                            cropSource = cropSource,
+            if (useLocalOcr || ocrSettings.apiOcrConcurrencyLimit <= 1) {
+                for (region in regions) {
+                    val text = recognizeRegionFromSource(
+                        cropSource = cropSource,
+                        rect = region.rect,
+                        language = language,
+                        useLocalOcr = useLocalOcr,
+                        logTag = "Pipeline"
+                    )
+                    if (text.isBlank() && !useLocalOcr) {
+                        continue
+                    }
+                    bubbles.add(
+                        OcrBubble(
+                            id = region.id,
                             rect = region.rect,
-                            language = language,
-                            useLocalOcr = useLocalOcr,
-                            logTag = "Pipeline"
+                            text = text,
+                            source = region.source,
+                            maskContour = region.maskContour
                         )
-                        if (text.isBlank() && !useLocalOcr) {
-                            continue
-                        }
-                        bubbles.add(
-                            OcrBubble(
-                                id = region.id,
-                                rect = region.rect,
-                                text = text,
-                                source = region.source,
-                                maskContour = region.maskContour
-                            )
-                        )
-                    }
-                } else {
-                    val semaphore = Semaphore(ocrSettings.apiOcrConcurrencyLimit)
-                    val results = coroutineScope {
-                        regions.map { region ->
-                            async(Dispatchers.IO) {
-                                semaphore.withPermit {
-                                    val text = recognizeRegionFromSource(
-                                        cropSource = cropSource,
-                                        rect = region.rect,
-                                        language = language,
-                                        useLocalOcr = false,
-                                        logTag = "Pipeline"
-                                    )
-                                    if (text.isBlank()) null
-                                    else OcrBubble(
-                                        id = region.id,
-                                        rect = region.rect,
-                                        text = text,
-                                        source = region.source,
-                                        maskContour = region.maskContour
-                                    )
-                                }
-                            }
-                        }.awaitAll()
-                    }
-                    results.filterNotNullTo(bubbles)
+                    )
                 }
-            } ?: run {
-                AppLogger.log("Pipeline", "Failed to open crop source for ${imageFile.name}")
-                return@withContext null
+            } else {
+                val semaphore = Semaphore(ocrSettings.apiOcrConcurrencyLimit)
+                val results = coroutineScope {
+                    regions.map { region ->
+                        async(Dispatchers.IO) {
+                            semaphore.withPermit {
+                                val text = recognizeRegionFromSource(
+                                    cropSource = cropSource,
+                                    rect = region.rect,
+                                    language = language,
+                                    useLocalOcr = false,
+                                    logTag = "Pipeline"
+                                )
+                                if (text.isBlank()) null
+                                else OcrBubble(
+                                    id = region.id,
+                                    rect = region.rect,
+                                    text = text,
+                                    source = region.source,
+                                    maskContour = region.maskContour
+                                )
+                            }
+                        }
+                    }.awaitAll()
+                }
+                results.filterNotNullTo(bubbles)
             }
             val mergedBubbles = RectGeometryDeduplicator.mergeShortTextDetectorOcrBubbles(
                 bubbles = bubbles,
@@ -264,8 +258,9 @@ internal class TranslationPipeline(
             )
             ocrStore.save(imageFile, result)
             result
-        } finally {
-            detection.bitmap.recycleSafely()
+        } ?: run {
+            AppLogger.log("Pipeline", "Failed to open crop source for ${imageFile.name}")
+            null
         }
     }
 
@@ -519,11 +514,13 @@ internal class TranslationPipeline(
         sourceBitmap: Bitmap
     ): PageOcrResult? =
         withContext(Dispatchers.Default) {
-            val detection = PipelineBitmapDecoder.prepareDetectionBitmap(sourceBitmap)
-            try {
-                val pageRegions = pageRegionDetector.detect(detection.bitmap, logTag = "Pipeline")
-                    ?.remapToSource(sourceBitmap.width, sourceBitmap.height)
-                    ?: return@withContext null
+            PipelineBitmapDecoder.openCropSource(sourceBitmap).use { cropSource ->
+                val pageRegions = pageRegionDetector.detect(
+                    cropSource = cropSource,
+                    pageWidth = sourceBitmap.width,
+                    pageHeight = sourceBitmap.height,
+                    logTag = "Pipeline"
+                ) ?: return@withContext null
                 val bubbles = pageRegions.regions.map { region ->
                     OcrBubble(
                         id = region.id,
@@ -534,10 +531,6 @@ internal class TranslationPipeline(
                     )
                 }
                 PageOcrResult(imageFile, pageRegions.width, pageRegions.height, bubbles)
-            } finally {
-                if (detection.bitmap !== sourceBitmap) {
-                    detection.bitmap.recycleSafely()
-                }
             }
         }
 
@@ -597,7 +590,11 @@ internal class TranslationPipeline(
                 language = language,
                 mode = TranslationMetadata.MODE_FULL_PAGE,
                 promptAsset = FULL_TRANS_PROMPT_ASSET,
-                ocrCacheMode = buildOcrCacheMode(settingsStore.loadOcrApiSettings().useLocalOcr, language),
+                ocrCacheMode = buildOcrCacheMode(
+                    imageFile,
+                    settingsStore.loadOcrApiSettings().useLocalOcr,
+                    language
+                ),
                 providerContext = null
             )
             else -> buildTranslationMetadata(
@@ -605,7 +602,11 @@ internal class TranslationPipeline(
                 language = language,
                 mode = TranslationMetadata.MODE_STANDARD,
                 promptAsset = STANDARD_PROMPT_ASSET,
-                ocrCacheMode = buildOcrCacheMode(settingsStore.loadOcrApiSettings().useLocalOcr, language),
+                ocrCacheMode = buildOcrCacheMode(
+                    imageFile,
+                    settingsStore.loadOcrApiSettings().useLocalOcr,
+                    language
+                ),
                 providerContext = null
             )
         }
@@ -678,10 +679,11 @@ internal class TranslationPipeline(
     }
 
     private fun buildOcrCacheMode(
+        imageFile: File,
         useLocalOcr: Boolean,
         language: TranslationLanguage
     ): String {
-        return if (!useLocalOcr) {
+        val baseMode = if (!useLocalOcr) {
             "api"
         } else {
             val ocrSettings = settingsStore.loadOcrApiSettings()
@@ -693,6 +695,10 @@ internal class TranslationPipeline(
                 TranslationLanguage.KO_TO_ZH -> "local_ko"
             }
         }
+        val strategyTag = PipelineBitmapDecoder.readImageSize(imageFile)?.let { size ->
+            buildDetectionStrategyTag(size.width, size.height)
+        } ?: "det_full_v1"
+        return "$baseMode|$strategyTag"
     }
 
     private suspend fun <T> executeWithModelResponseRetries(
@@ -725,6 +731,17 @@ internal class TranslationPipeline(
         )
     }
 
+}
+
+internal fun buildDetectionStrategyTag(
+    pageWidth: Int,
+    pageHeight: Int
+): String {
+    return if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
+        "det_tiled_long_v1"
+    } else {
+        "det_full_v1"
+    }
 }
 
 data class OcrBubble(

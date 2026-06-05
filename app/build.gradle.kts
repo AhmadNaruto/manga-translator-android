@@ -21,8 +21,8 @@ android {
         applicationId = "com.manga.translate.v3"
         minSdk = 24
         targetSdk = 36
-        versionCode = 60
-        versionName = "3.2.2"
+        versionCode = 61
+        versionName = "3.2.3"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -104,4 +104,6 @@ dependencies {
     implementation("net.lingala.zip4j:zip4j:2.11.5")
     implementation("io.github.awxkee:avif-coder:2.2.1")
 
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }

@@ -295,6 +295,7 @@ class ReadingFragment : Fragment() {
                     updateReadingContentLayout(currentBitmap)
                     updateOverlay(currentTranslation, currentBitmap)
                 } else {
+                    readingDisplayMode = resolveReadingDisplayMode(currentBitmap)
                     imageTransformController.reset(currentBitmap!!, readingDisplayMode)
                 }
             }
@@ -396,12 +397,14 @@ class ReadingFragment : Fragment() {
             ) {
                 return@launch
             }
+            val isTargetLongImage = decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)
             val shouldAnimate = bitmap != null &&
                 previousBitmap != null &&
                 previousPageSnapshot != null &&
                 previousDisplayedPath != null &&
                 previousDisplayedPath != targetPath &&
-                folderReadingMode != FolderReadingMode.WEBTOON_SCROLL
+                folderReadingMode != FolderReadingMode.WEBTOON_SCROLL &&
+                !isTargetLongImage
             val direction = if ((previousDisplayedIndex ?: targetIndex) < targetIndex) -1 else 1
             binding.readingImage.translationX = 0f
             if (bitmap != null) {
@@ -410,6 +413,7 @@ class ReadingFragment : Fragment() {
                 currentImageWidth = decoded.sourceWidth
                 currentImageHeight = decoded.sourceHeight
                 imageTransformController.setCurrentBitmap(bitmap)
+                applyReadingImageLayerMode(bitmap)
                 displayedImagePath = targetPath
                 displayedPageIndex = targetIndex
             } else {
@@ -418,13 +422,14 @@ class ReadingFragment : Fragment() {
                 currentImageWidth = 0
                 currentImageHeight = 0
                 imageTransformController.setCurrentBitmap(null)
+                applyReadingImageLayerMode(null)
                 displayedImagePath = null
                 displayedPageIndex = null
             }
             binding.readingScrollContainer.scrollTo(0, 0)
             binding.readingImage.post {
                 if (bitmap != null) {
-                    readingDisplayMode = settingsStore.loadReadingDisplayMode()
+                    readingDisplayMode = resolveReadingDisplayMode(bitmap)
                     updateReadingContentLayout(bitmap)
                     if (folderReadingMode != FolderReadingMode.WEBTOON_SCROLL) {
                         binding.readingContentContainer.doOnLayout {
@@ -729,7 +734,7 @@ class ReadingFragment : Fragment() {
         binding.readingTransitionImage.translationX = 0f
         binding.readingTransitionImage.alpha = 1f
         binding.readingTransitionImage.visibility = View.GONE
-        binding.readingImage.setLayerType(View.LAYER_TYPE_NONE, null)
+        applyReadingImageLayerMode(currentBitmap)
         binding.readingTransitionImage.setLayerType(View.LAYER_TYPE_NONE, null)
         binding.readingTransitionImage.post {
             if (_binding == null) return@post
@@ -779,10 +784,10 @@ class ReadingFragment : Fragment() {
 
     private fun applyReadingDisplayMode() {
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) return
-        val mode = settingsStore.loadReadingDisplayMode()
+        val bitmap = currentBitmap ?: return
+        val mode = resolveReadingDisplayMode(bitmap)
         if (mode == readingDisplayMode) return
         readingDisplayMode = mode
-        val bitmap = currentBitmap ?: return
         imageTransformController.reset(bitmap, readingDisplayMode)
         updateOverlay(currentTranslation, bitmap)
     }
@@ -834,6 +839,29 @@ class ReadingFragment : Fragment() {
     private fun handleDoubleTap(x: Float, y: Float) {
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) return
         imageTransformController.toggleDoubleTapZoom(x, y)
+    }
+
+    private fun resolveReadingDisplayMode(bitmap: Bitmap?): ReadingDisplayMode {
+        return if (bitmap != null && isLongImage(currentImageWidth.takeIf { it > 0 } ?: bitmap.width, currentImageHeight.takeIf { it > 0 } ?: bitmap.height)) {
+            ReadingDisplayMode.FIT_WIDTH
+        } else {
+            settingsStore.loadReadingDisplayMode()
+        }
+    }
+
+    private fun applyReadingImageLayerMode(bitmap: Bitmap?) {
+        val isLong = bitmap != null && isLongImage(
+            currentImageWidth.takeIf { it > 0 } ?: bitmap.width,
+            currentImageHeight.takeIf { it > 0 } ?: bitmap.height
+        )
+        binding.readingImage.setLayerType(
+            if (isLong) View.LAYER_TYPE_SOFTWARE else View.LAYER_TYPE_NONE,
+            null
+        )
+    }
+
+    private fun isLongImage(width: Int, height: Int): Boolean {
+        return shouldUseLongImageTiling(width, height)
     }
 
     private fun applyTextLayoutSetting() {
