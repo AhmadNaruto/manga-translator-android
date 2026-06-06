@@ -514,6 +514,7 @@ class WebtoonReadingAdapter(
             binding.readingPageOverlay.onBubbleLongPress = null
             binding.readingPageOverlay.visibility = View.GONE
             applyPlaceholder(item)
+            primeLayoutFromKnownSize(item)
             binding.readingPageImage.setRegionSource(null)
             binding.readingPageImage.setImageDrawable(null)
             imageTransformController.setCurrentBitmap(null)
@@ -625,15 +626,23 @@ class WebtoonReadingAdapter(
                 } else {
                     async(Dispatchers.IO) { loadTranslation(imageFile) }
                 }
-                val decoded = decodedDeferred.await()
-                if (boundItem?.stableKey != item.stableKey) return@launch
-                if (decoded == null) {
+                val earlyTranslationJob = launch {
                     val translation = if (hasCachedTranslation) {
                         cachedTranslation
                     } else {
                         translationDeferred?.await().also { translationCache[imagePath] = it }
                     }
+                    if (boundItem?.stableKey != item.stableKey) return@launch
                     currentTranslation = translation
+                    if (currentImageWidth > 0 && currentImageHeight > 0) {
+                        currentTranslation = normalizeTranslation(translation)
+                        bindOverlay(currentTranslation)
+                    }
+                }
+                val decoded = decodedDeferred.await()
+                if (boundItem?.stableKey != item.stableKey) return@launch
+                if (decoded == null) {
+                    earlyTranslationJob.cancel()
                     binding.readingPageImage.setRegionSource(null)
                     binding.readingPageImage.setImageDrawable(null)
                     binding.readingPageOverlay.visibility = View.GONE
@@ -644,7 +653,7 @@ class WebtoonReadingAdapter(
                 currentBitmap = decoded.bitmap
                 currentImageWidth = decoded.sourceWidth
                 currentImageHeight = decoded.sourceHeight
-                currentTranslation = null
+                currentTranslation = normalizeTranslation(currentTranslation)
                 updatePageHeightForImage(decoded.sourceWidth, decoded.sourceHeight, item.tile)
                 binding.readingPageImage.setRegionSource(decoded.regionSource)
                 binding.readingPageImage.setImageDrawable(decoded.drawable)
@@ -659,14 +668,6 @@ class WebtoonReadingAdapter(
                     binding.readingPagePlaceholder.visibility = View.GONE
                     bindOverlay(currentTranslation)
                 }
-                val translation = if (hasCachedTranslation) {
-                    cachedTranslation
-                } else {
-                    translationDeferred?.await().also { translationCache[imagePath] = it }
-                }
-                if (boundItem?.stableKey != item.stableKey) return@launch
-                currentTranslation = normalizeTranslation(translation)
-                bindOverlay(currentTranslation)
             }
         }
 
@@ -735,6 +736,14 @@ class WebtoonReadingAdapter(
             if (params.height == height) return
             params.height = height
             binding.readingPagePlaceholder.layoutParams = params
+        }
+
+        private fun primeLayoutFromKnownSize(item: WebtoonDisplayItem) {
+            val size = sourceSizeCache[item.path] ?: return
+            if (size.width <= 0 || size.height <= 0) return
+            currentImageWidth = size.width
+            currentImageHeight = size.height
+            updatePageHeightForImage(size.width, size.height, item.tile)
         }
 
         private fun updatePageHeightForImage(sourceWidth: Int, sourceHeight: Int, tile: WebtoonTile?) {

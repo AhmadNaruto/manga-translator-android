@@ -51,6 +51,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
     private val contentMatrix = Matrix()
     private val inverseMatrix = Matrix()
     private val visibleRect = RectF()
+    private val prefetchRect = RectF()
     private val tileDrawRect = RectF()
     private val decodeLock = Any()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -95,9 +96,12 @@ class ReadingRegionImageView @JvmOverloads constructor(
         }
         if (width <= 0 || height <= 0) return
         if (!computeVisibleDisplayRect(activeSource)) return
+        val visibleRequests = planTiles(activeSource, visibleRect)
+        val prefetchRequests = planPrefetchTiles(activeSource, visibleRequests)
+        cancelStaleDecodeJobs((visibleRequests + prefetchRequests).mapTo(hashSetOf()) { it.key })
         val save = canvas.save()
         canvas.concat(contentMatrix)
-        for (request in planVisibleTiles(activeSource)) {
+        for (request in visibleRequests) {
             val bitmap = tileCache.get(request.key)
             tileDrawRect.set(
                 request.key.left.toFloat(),
@@ -109,10 +113,13 @@ class ReadingRegionImageView @JvmOverloads constructor(
                 canvas.drawBitmap(bitmap, null, tileDrawRect, paint)
             } else {
                 canvas.drawRect(tileDrawRect, missingTilePaint)
-                enqueueDecode(activeSource, request)
+                enqueueDecode(activeSource, request, priority = true)
             }
         }
         canvas.restoreToCount(save)
+        for (request in prefetchRequests) {
+            enqueueDecode(activeSource, request, priority = false)
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -137,14 +144,17 @@ class ReadingRegionImageView @JvmOverloads constructor(
         return visibleRect.width() > 0f && visibleRect.height() > 0f
     }
 
-    private fun planVisibleTiles(activeSource: ReadingRegionImageSource): List<DecodeRequest> {
+    private fun planTiles(
+        activeSource: ReadingRegionImageSource,
+        displayRect: RectF
+    ): List<DecodeRequest> {
         val displayWidth = displayWidth(activeSource)
         val displayHeight = displayHeight(activeSource)
         val tileSize = displayTileSize()
-        val leftIndex = floor(visibleRect.left / tileSize).toInt().coerceAtLeast(0)
-        val topIndex = floor(visibleRect.top / tileSize).toInt().coerceAtLeast(0)
-        val rightIndex = ceil(visibleRect.right / tileSize).toInt().coerceAtLeast(leftIndex + 1)
-        val bottomIndex = ceil(visibleRect.bottom / tileSize).toInt().coerceAtLeast(topIndex + 1)
+        val leftIndex = floor(displayRect.left / tileSize).toInt().coerceAtLeast(0)
+        val topIndex = floor(displayRect.top / tileSize).toInt().coerceAtLeast(0)
+        val rightIndex = ceil(displayRect.right / tileSize).toInt().coerceAtLeast(leftIndex + 1)
+        val bottomIndex = ceil(displayRect.bottom / tileSize).toInt().coerceAtLeast(topIndex + 1)
         val result = ArrayList<DecodeRequest>()
         for (tileY in topIndex until bottomIndex) {
             for (tileX in leftIndex until rightIndex) {
@@ -174,8 +184,46 @@ class ReadingRegionImageView @JvmOverloads constructor(
         return result
     }
 
-    private fun enqueueDecode(activeSource: ReadingRegionImageSource, request: DecodeRequest) {
+    private fun planPrefetchTiles(
+        activeSource: ReadingRegionImageSource,
+        visibleRequests: List<DecodeRequest>
+    ): List<DecodeRequest> {
+        if (visibleRequests.isEmpty()) return emptyList()
+        val displayHeight = displayHeight(activeSource).toFloat()
+        val verticalMargin = visibleRect.height() * PREFETCH_VIEWPORT_MULTIPLIER
+        prefetchRect.set(
+            visibleRect.left,
+            (visibleRect.top - verticalMargin).coerceAtLeast(0f),
+            visibleRect.right,
+            (visibleRect.bottom + verticalMargin).coerceAtMost(displayHeight)
+        )
+        if (prefetchRect == visibleRect) return emptyList()
+        val visibleKeys = visibleRequests.mapTo(hashSetOf()) { it.key }
+        return planTiles(activeSource, prefetchRect)
+            .filterNot { it.key in visibleKeys }
+    }
+
+    private fun cancelStaleDecodeJobs(activeKeys: Set<TileKey>) {
+        if (decodeJobs.isEmpty()) return
+        val iterator = decodeJobs.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            val key = entry.key
+            val job = entry.value
+            if (key !in activeKeys) {
+                job.cancel()
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun enqueueDecode(
+        activeSource: ReadingRegionImageSource,
+        request: DecodeRequest,
+        priority: Boolean
+    ) {
         if (tileCache.get(request.key) != null || decodeJobs.containsKey(request.key)) return
+        if (!priority && decodeJobs.size >= MAX_BACKGROUND_DECODE_JOBS) return
         val decodeGeneration = generation
         decodeJobs[request.key] = scope.launch {
             val bitmap = withContext(Dispatchers.IO) {
@@ -263,6 +311,8 @@ class ReadingRegionImageView @JvmOverloads constructor(
     private companion object {
         const val DEFAULT_DISPLAY_TILE_SIZE = 1024
         const val MAX_DISPLAY_TILE_SIZE = 2048
+        const val PREFETCH_VIEWPORT_MULTIPLIER = 1.5f
+        const val MAX_BACKGROUND_DECODE_JOBS = 4
 
         fun tileCacheMaxKb(): Int {
             val runtimeMaxKb = (Runtime.getRuntime().maxMemory() / 1024L).coerceAtLeast(1L)
