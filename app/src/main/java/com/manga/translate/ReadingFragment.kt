@@ -40,6 +40,11 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 class ReadingFragment : Fragment() {
+    private data class WebtoonScrollAnchor(
+        val imageIndex: Int,
+        val topOffset: Int
+    )
+
     private fun formatInt(value: Int): String = String.format(Locale.getDefault(), "%d", value)
 
     private fun resolveColorAttr(attrRes: Int): Int {
@@ -108,6 +113,7 @@ class ReadingFragment : Fragment() {
     private var webtoonPreparingEdit = false
     private var activeWebtoonZoomHolder: WebtoonReadingAdapter.WebtoonPageViewHolder? = null
     private var webtoonTouchHolder: WebtoonReadingAdapter.WebtoonPageViewHolder? = null
+    private var pendingWebtoonScrollAnchor: WebtoonScrollAnchor? = null
     private var displayedPageIndex: Int? = null
     private var displayedImagePath: String? = null
     private var pageTransitionGeneration: Int = 0
@@ -128,11 +134,20 @@ class ReadingFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         emptyBubbleCoordinator = appContainer.createReadingEmptyBubbleCoordinator()
         webtoonLayoutManager = LockedWebtoonLinearLayoutManager(requireContext())
-        webtoonLayoutManager.initialPrefetchItemCount = 3
+        webtoonLayoutManager.initialPrefetchItemCount = 6
         webtoonAdapter = WebtoonReadingAdapter(
             scope = viewLifecycleOwner.lifecycleScope,
             loadTranslation = ::loadValidTranslationForCurrentFolder
         )
+        webtoonAdapter.onDisplayStructureChanging = {
+            pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
+        }
+        webtoonAdapter.onDisplayStructureChanged = {
+            restorePendingWebtoonScrollAnchor()
+            syncWebtoonEditSession()
+            updateWebtoonPageInfo()
+            prefetchVisibleWebtoonTiles()
+        }
         webtoonAdapter.onLockedBubbleOffsetChanged = offsetChanged@{ bubbleId, offsetX, offsetY ->
             if (!isWebtoonEditSessionActive()) return@offsetChanged
             webtoonEditOffsets[bubbleId] = offsetX to offsetY
@@ -151,7 +166,7 @@ class ReadingFragment : Fragment() {
         }
         binding.readingWebtoonList.layoutManager = webtoonLayoutManager
         binding.readingWebtoonList.adapter = webtoonAdapter
-        binding.readingWebtoonList.setItemViewCacheSize(4)
+        binding.readingWebtoonList.setItemViewCacheSize(resolveWebtoonItemViewCacheSize())
         binding.readingWebtoonList.addOnItemTouchListener(object : RecyclerView.OnItemTouchListener {
             override fun onInterceptTouchEvent(rv: RecyclerView, event: MotionEvent): Boolean {
                 if (folderReadingMode != FolderReadingMode.WEBTOON_SCROLL || isEditMode) return false
@@ -194,6 +209,7 @@ class ReadingFragment : Fragment() {
                     persistWebtoonProgress()
                 }
                 warmNearbyWebtoonTranslations()
+                prefetchVisibleWebtoonTiles()
             }
         })
         readingDisplayMode = settingsStore.loadReadingDisplayMode()
@@ -327,6 +343,9 @@ class ReadingFragment : Fragment() {
         activeEmptyBubbleModelErrorDialog = null
         cancelPageTransition()
         clearWebtoonEditSession(resetCurrentPage = true)
+        if (::webtoonAdapter.isInitialized) {
+            webtoonAdapter.clearRuntimeCaches()
+        }
         binding.readingWebtoonList.adapter = null
         _binding = null
     }
@@ -1351,6 +1370,54 @@ class ReadingFragment : Fragment() {
         val imageIndex = webtoonAdapter.imageIndexForAdapterPosition(adapterPosition)
         if (imageIndex == RecyclerView.NO_POSITION) return
         readingProgressStore.save(folder, imageIndex)
+    }
+
+    private fun captureWebtoonScrollAnchor(): WebtoonScrollAnchor? {
+        if (!::webtoonLayoutManager.isInitialized || !::webtoonAdapter.isInitialized) return null
+        val adapterPosition = webtoonLayoutManager.findFirstVisibleItemPosition()
+        if (adapterPosition == RecyclerView.NO_POSITION) return null
+        val imageIndex = webtoonAdapter.imageIndexForAdapterPosition(adapterPosition)
+        if (imageIndex == RecyclerView.NO_POSITION) return null
+        val view = webtoonLayoutManager.findViewByPosition(adapterPosition)
+        val topOffset = view?.top?.minus(binding.readingWebtoonList.paddingTop) ?: 0
+        return WebtoonScrollAnchor(imageIndex, topOffset)
+    }
+
+    private fun restorePendingWebtoonScrollAnchor() {
+        val anchor = pendingWebtoonScrollAnchor ?: return
+        pendingWebtoonScrollAnchor = null
+        if (!isAdded || _binding == null || folderReadingMode != FolderReadingMode.WEBTOON_SCROLL) return
+        val adapterPosition = webtoonAdapter.adapterPositionForImageIndex(anchor.imageIndex)
+            .takeIf { it != RecyclerView.NO_POSITION }
+            ?: return
+        binding.readingWebtoonList.post {
+            if (!isAdded || _binding == null || folderReadingMode != FolderReadingMode.WEBTOON_SCROLL) return@post
+            webtoonLayoutManager.scrollToPositionWithOffset(adapterPosition, anchor.topOffset)
+        }
+    }
+
+    private fun prefetchVisibleWebtoonTiles() {
+        if (folderReadingMode != FolderReadingMode.WEBTOON_SCROLL) return
+        val firstVisible = webtoonLayoutManager.findFirstVisibleItemPosition()
+        val lastVisible = webtoonLayoutManager.findLastVisibleItemPosition()
+        if (firstVisible == RecyclerView.NO_POSITION || lastVisible == RecyclerView.NO_POSITION) return
+        val targetWidth = binding.readingWebtoonList.width
+            .takeIf { it > 0 }
+            ?: resources.displayMetrics.widthPixels
+        webtoonAdapter.prefetchTilesAroundAdapterRange(
+            startPosition = firstVisible,
+            endPosition = lastVisible,
+            targetWidth = targetWidth
+        )
+    }
+
+    private fun resolveWebtoonItemViewCacheSize(): Int {
+        val maxMemoryMb = Runtime.getRuntime().maxMemory() / (1024L * 1024L)
+        return when {
+            maxMemoryMb >= 768L -> 10
+            maxMemoryMb >= 384L -> 8
+            else -> 6
+        }
     }
 
     private fun updateWebtoonPageInfo() {
