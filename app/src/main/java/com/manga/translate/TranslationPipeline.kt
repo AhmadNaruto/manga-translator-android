@@ -78,15 +78,16 @@ internal class TranslationPipeline(
             providerContext = providerContext
         )
         AppLogger.log("Pipeline", "Translate image ${imageFile.name}")
-        val translatable = page.bubbles.filter { it.text.isNotBlank() }
+        val ocrPage = page.withRecognizedTextBubblesOnly("Pipeline")
+        val translatable = ocrPage.bubbles
         if (translatable.isEmpty()) {
-            val emptyTranslations = page.bubbles.map {
+            val emptyTranslations = ocrPage.bubbles.map {
                 BubbleTranslation.pending(it.id, it.rect, "", it.source, it.maskContour)
             }
             return@withContext TranslationResult(
                 imageFile.name,
-                page.width,
-                page.height,
+                ocrPage.width,
+                ocrPage.height,
                 emptyTranslations,
                 metadata.copy(status = PageTranslationStatus.SUCCESS)
             )
@@ -121,7 +122,7 @@ internal class TranslationPipeline(
             throw e.withPageName(imageFile.name)
         }
         val translationMap = translatedBubbles.associateBy { it.id }
-        val bubbles = page.bubbles.map { bubble ->
+        val bubbles = ocrPage.bubbles.map { bubble ->
             translationMap[bubble.id] ?: BubbleTranslation.pending(
                 id = bubble.id,
                 rect = bubble.rect,
@@ -131,7 +132,7 @@ internal class TranslationPipeline(
             )
         }
         AppLogger.log("Pipeline", "Translation finished for ${imageFile.name}")
-        val resultBase = TranslationResult(imageFile.name, page.width, page.height, bubbles, metadata)
+        val resultBase = TranslationResult(imageFile.name, ocrPage.width, ocrPage.height, bubbles, metadata)
         resultBase.copy(metadata = metadata.copy(status = resultBase.deriveStatus()))
     }
 
@@ -197,7 +198,7 @@ internal class TranslationPipeline(
                         useLocalOcr = useLocalOcr,
                         logTag = "Pipeline"
                     )
-                    if (text.isBlank() && !useLocalOcr) {
+                    if (text.isBlank()) {
                         continue
                     }
                     bubbles.add(
@@ -285,15 +286,16 @@ internal class TranslationPipeline(
             ocrCacheMode = page.cacheMode,
             providerContext = providerContext
         )
-        val translatable = page.bubbles.filter { it.text.isNotBlank() }
+        val ocrPage = page.withRecognizedTextBubblesOnly("Pipeline")
+        val translatable = ocrPage.bubbles
         if (translatable.isEmpty()) {
-            val emptyTranslations = page.bubbles.map {
+            val emptyTranslations = ocrPage.bubbles.map {
                 BubbleTranslation.pending(it.id, it.rect, "", it.source, it.maskContour)
             }
             return@withContext TranslationResult(
-                page.imageFile.name,
-                page.width,
-                page.height,
+                ocrPage.imageFile.name,
+                ocrPage.width,
+                ocrPage.height,
                 emptyTranslations,
                 metadata.copy(status = PageTranslationStatus.SUCCESS)
             )
@@ -321,10 +323,10 @@ internal class TranslationPipeline(
             } ?: return@withContext null
             translated.bubbles
         } catch (e: LlmResponseException) {
-            throw e.withPageName(page.imageFile.name)
+            throw e.withPageName(ocrPage.imageFile.name)
         }
         val translationMap = translatedBubbles.associateBy { it.id }
-        val bubbles = page.bubbles.map { bubble ->
+        val bubbles = ocrPage.bubbles.map { bubble ->
             translationMap[bubble.id] ?: BubbleTranslation.pending(
                 id = bubble.id,
                 rect = bubble.rect,
@@ -333,7 +335,7 @@ internal class TranslationPipeline(
                 maskContour = bubble.maskContour
             )
         }
-        val resultBase = TranslationResult(page.imageFile.name, page.width, page.height, bubbles, metadata)
+        val resultBase = TranslationResult(ocrPage.imageFile.name, ocrPage.width, ocrPage.height, bubbles, metadata)
         resultBase.copy(metadata = metadata.copy(status = resultBase.deriveStatus()))
     }
 
@@ -498,13 +500,14 @@ internal class TranslationPipeline(
             ocrCacheMode = page.cacheMode,
             providerContext = null
         )
-        val bubbles = page.bubbles.map { bubble ->
+        val ocrPage = page.withRecognizedTextBubblesOnly("Pipeline")
+        val bubbles = ocrPage.bubbles.map { bubble ->
             BubbleTranslation.pending(bubble.id, bubble.rect, "", bubble.source, bubble.maskContour)
         }
         return TranslationResult(
-            imageName = page.imageFile.name,
-            width = page.width,
-            height = page.height,
+            imageName = ocrPage.imageFile.name,
+            width = ocrPage.width,
+            height = ocrPage.height,
             bubbles = bubbles,
             metadata = metadata
         )
@@ -765,6 +768,15 @@ data class PageOcrResult(
     val cacheMode: String = "",
     val metadata: OcrMetadata = OcrMetadata()
 )
+
+internal fun PageOcrResult.withRecognizedTextBubblesOnly(logTag: String? = null): PageOcrResult {
+    val filtered = bubbles.filter { it.text.isNotBlank() }
+    if (filtered.size == bubbles.size) return this
+    logTag?.let {
+        AppLogger.log(it, "Dropped OCR bubbles without text: ${bubbles.size} -> ${filtered.size}")
+    }
+    return copy(bubbles = filtered)
+}
 
 data class FolderVlTranslateOutcome(
     val result: TranslationResult? = null,

@@ -5,9 +5,28 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 class TranslationModelsTest {
+    @Test
+    fun `ocr page drops bubbles without recognized text`() {
+        val page = PageOcrResult(
+            imageFile = File("page.jpg"),
+            width = 1000,
+            height = 7000,
+            bubbles = listOf(
+                OcrBubble(0, rect(0), "あ", BubbleSource.BUBBLE_DETECTOR),
+                OcrBubble(1, rect(1), "", BubbleSource.BUBBLE_DETECTOR),
+                OcrBubble(2, rect(2), "  ", BubbleSource.TEXT_DETECTOR)
+            )
+        )
+
+        val filtered = page.withRecognizedTextBubblesOnly()
+
+        assertEquals(listOf(0), filtered.bubbles.map { it.id })
+    }
+
     @Test
     fun `standard status ignores bubbles without ocr text`() {
         val result = TranslationResult(

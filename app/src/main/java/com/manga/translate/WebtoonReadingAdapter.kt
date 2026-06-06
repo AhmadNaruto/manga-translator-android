@@ -104,6 +104,9 @@ class WebtoonReadingAdapter(
     private val sourceSizeCache = mutableMapOf<String, Size>()
     private val boundHolders = mutableMapOf<String, MutableSet<WebtoonPageViewHolder>>()
     private val translationCache = mutableMapOf<String, TranslationResult?>()
+    private val tileTranslationCache = mutableMapOf<String, TranslationResult>()
+    private val translationLoadLock = Any()
+    private val translationLoadJobs = mutableMapOf<String, Deferred<TranslationResult?>>()
     private val tileBitmapCache = object : LruCache<String, DecodedReadingBitmap>(tileCacheMaxKb()) {
         override fun sizeOf(key: String, value: DecodedReadingBitmap): Int {
             return ((value.bitmap?.byteCount ?: 0) / 1024).coerceAtLeast(1)
@@ -266,7 +269,12 @@ class WebtoonReadingAdapter(
             tileDecodeJobs.values.forEach { it.cancel() }
             tileDecodeJobs.clear()
         }
+        synchronized(translationLoadLock) {
+            translationLoadJobs.values.forEach { it.cancel() }
+            translationLoadJobs.clear()
+        }
         tileBitmapCache.evictAll()
+        tileTranslationCache.clear()
         boundHolders.clear()
     }
 
@@ -318,6 +326,10 @@ class WebtoonReadingAdapter(
 
     fun notifyTranslationChanged(imagePath: String) {
         translationCache.remove(imagePath)
+        clearTileTranslationCacheForPath(imagePath)
+        synchronized(translationLoadLock) {
+            translationLoadJobs.remove(imagePath)?.cancel()
+        }
         displayItems.forEachIndexed { index, item ->
             if (item.path != imagePath) return@forEachIndexed
             notifyItemChanged(index, PAYLOAD_TRANSLATION_ONLY)
@@ -325,9 +337,25 @@ class WebtoonReadingAdapter(
     }
 
     private fun pruneTranslationCache(images: List<File>) {
-        if (translationCache.isEmpty()) return
         val activePaths = images.mapTo(hashSetOf()) { it.absolutePath }
-        translationCache.keys.retainAll(activePaths)
+        if (translationCache.isNotEmpty()) {
+            translationCache.keys.retainAll(activePaths)
+        }
+        if (tileTranslationCache.isNotEmpty()) {
+            tileTranslationCache.keys.retainAll { key ->
+                activePaths.any { path -> key.startsWith("$path#") }
+            }
+        }
+        synchronized(translationLoadLock) {
+            val iterator = translationLoadJobs.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.key !in activePaths) {
+                    entry.value.cancel()
+                    iterator.remove()
+                }
+            }
+        }
     }
 
     private fun pruneSourceSizeCache(images: List<File>) {
@@ -342,6 +370,39 @@ class WebtoonReadingAdapter(
             val isActive = activePaths.any { path -> key.startsWith("$path#") }
             if (!isActive) {
                 tileBitmapCache.remove(key)
+            }
+        }
+    }
+
+    private fun clearTileTranslationCacheForPath(path: String) {
+        if (tileTranslationCache.isEmpty()) return
+        tileTranslationCache.keys.removeAll { key ->
+            key == path || key.startsWith("$path#")
+        }
+    }
+
+    private suspend fun loadTranslationShared(imageFile: File): TranslationResult? {
+        val imagePath = imageFile.absolutePath
+        if (translationCache.containsKey(imagePath)) {
+            return translationCache[imagePath]
+        }
+        val deferred = synchronized(translationLoadLock) {
+            if (translationCache.containsKey(imagePath)) {
+                return translationCache[imagePath]
+            }
+            translationLoadJobs[imagePath] ?: scope.async(Dispatchers.IO) {
+                loadTranslation(imageFile)
+            }.also { translationLoadJobs[imagePath] = it }
+        }
+        return try {
+            deferred.await().also { translation ->
+                translationCache[imagePath] = translation
+            }
+        } finally {
+            synchronized(translationLoadLock) {
+                if (translationLoadJobs[imagePath] === deferred) {
+                    translationLoadJobs.remove(imagePath)
+                }
             }
         }
     }
@@ -619,19 +680,8 @@ class WebtoonReadingAdapter(
                         loadTileFromCache(item, targetWidth)
                     }
                 }
-                val hasCachedTranslation = translationCache.containsKey(imagePath)
-                val cachedTranslation = if (hasCachedTranslation) translationCache[imagePath] else null
-                val translationDeferred = if (hasCachedTranslation) {
-                    null
-                } else {
-                    async(Dispatchers.IO) { loadTranslation(imageFile) }
-                }
                 val earlyTranslationJob = launch {
-                    val translation = if (hasCachedTranslation) {
-                        cachedTranslation
-                    } else {
-                        translationDeferred?.await().also { translationCache[imagePath] = it }
-                    }
+                    val translation = loadTranslationShared(imageFile)
                     if (boundItem?.stableKey != item.stableKey) return@launch
                     currentTranslation = translation
                     if (currentImageWidth > 0 && currentImageHeight > 0) {
@@ -829,10 +879,7 @@ class WebtoonReadingAdapter(
             overlayReloadJob?.cancel()
             overlayReloadJob = scope.launch {
                 val imagePath = imageFile.absolutePath
-                val translation = withContext(Dispatchers.IO) {
-                    loadTranslation(imageFile)
-                }
-                translationCache[imagePath] = translation
+                val translation = loadTranslationShared(imageFile)
                 if (boundPath != imagePath) return@launch
                 currentTranslation = normalizeTranslation(translation)
                 bindOverlay(currentTranslation)
@@ -855,6 +902,7 @@ class WebtoonReadingAdapter(
                     translation.copy(width = currentImageWidth, height = currentImageHeight)
                 }
             }
+            tileTranslationCache[item.stableKey]?.let { return it }
             val tile = item.tile
             val sourceWidth = currentImageWidth
             val sourceHeight = currentImageHeight
@@ -873,7 +921,7 @@ class WebtoonReadingAdapter(
                 width = sourceWidth,
                 height = tile.sourceHeight,
                 bubbles = localBubbles
-            )
+            ).also { tileTranslationCache[item.stableKey] = it }
         }
 
         private fun isLockedEditPage(): Boolean {
