@@ -3,6 +3,7 @@ package com.manga.translate
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
+import java.text.Normalizer
 
 class OcrEngineRegistry(
     context: Context,
@@ -152,15 +153,14 @@ class BubbleTextRecognizer(
         useLocalOcr: Boolean,
         logTag: String
     ): String {
-        if (!useLocalOcr) {
-            return try {
+        val rawText = if (!useLocalOcr) {
+            try {
                 llmClient.recognizeImageText(crop)?.trim().orEmpty()
             } catch (e: Exception) {
                 AppLogger.log(logTag, "API OCR failed", e)
                 ""
             }
-        }
-        return when (language) {
+        } else when (language) {
             TranslationLanguage.JA_TO_ZH -> {
                 when (settingsStore.loadOcrApiSettings().japaneseLocalOcrEngine) {
                     JapaneseLocalOcrEngine.MANGA_OCR_MOBILE -> {
@@ -197,6 +197,7 @@ class BubbleTextRecognizer(
                 }
             }
         }
+        return OcrTextSanitizer.sanitize(rawText, language, logTag)
     }
 }
 
@@ -208,11 +209,85 @@ data class EnglishLine(
 )
 
 fun normalizeOcrText(text: String, language: TranslationLanguage): String {
-    if (language != TranslationLanguage.EN_TO_ZH && language != TranslationLanguage.KO_TO_ZH) return text
-    return text.replace('\r', ' ')
+    val sanitized = OcrTextSanitizer.sanitize(text, language)
+    if (language != TranslationLanguage.EN_TO_ZH && language != TranslationLanguage.KO_TO_ZH) {
+        return sanitized
+    }
+    return sanitized.replace('\r', ' ')
         .replace('\n', ' ')
         .replace(Regex("\\s+"), " ")
         .trim()
+}
+
+object OcrTextSanitizer {
+    fun sanitize(
+        text: String,
+        language: TranslationLanguage,
+        logTag: String? = null
+    ): String {
+        if (text.isBlank()) return ""
+        val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC)
+        val cleaned = removeInvisibleNoise(normalized)
+            .replace(Regex("[ \\t\\x0B\\f]+"), " ")
+            .replace(Regex(" *\\n+ *"), "\n")
+            .trim()
+        if (cleaned.isBlank()) return ""
+        if (!containsText(cleaned)) {
+            logTag?.let {
+                AppLogger.log(it, "Drop OCR non-text bubble language=${language.name}, text=${cleaned.take(80)}")
+            }
+            return ""
+        }
+        return cleaned
+    }
+
+    private fun removeInvisibleNoise(text: String): String {
+        val builder = StringBuilder(text.length)
+        var index = 0
+        while (index < text.length) {
+            val codePoint = text.codePointAt(index)
+            index += Character.charCount(codePoint)
+            when {
+                codePoint == '\r'.code || codePoint == '\n'.code -> builder.append('\n')
+                codePoint == '\t'.code -> builder.append(' ')
+                shouldDropCodePoint(codePoint) -> Unit
+                else -> builder.appendCodePoint(codePoint)
+            }
+        }
+        return builder.toString()
+    }
+
+    private fun shouldDropCodePoint(codePoint: Int): Boolean {
+        return when (Character.getType(codePoint)) {
+            Character.CONTROL.toInt(),
+            Character.FORMAT.toInt(),
+            Character.SURROGATE.toInt(),
+            Character.PRIVATE_USE.toInt(),
+            Character.UNASSIGNED.toInt() -> true
+            else -> false
+        }
+    }
+
+    private fun containsText(text: String): Boolean {
+        var index = 0
+        while (index < text.length) {
+            val codePoint = text.codePointAt(index)
+            index += Character.charCount(codePoint)
+            if (isTextCodePoint(codePoint)) return true
+        }
+        return false
+    }
+
+    private fun isTextCodePoint(codePoint: Int): Boolean {
+        return when (Character.getType(codePoint)) {
+            Character.UPPERCASE_LETTER.toInt(),
+            Character.LOWERCASE_LETTER.toInt(),
+            Character.TITLECASE_LETTER.toInt(),
+            Character.MODIFIER_LETTER.toInt(),
+            Character.OTHER_LETTER.toInt() -> true
+            else -> false
+        }
+    }
 }
 
 fun cropBitmap(source: Bitmap, rect: RectF): Bitmap? {
