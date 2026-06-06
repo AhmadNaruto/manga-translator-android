@@ -538,13 +538,12 @@ class ReadingFragment : Fragment() {
 
     private fun syncWebtoonEditSession() {
         val active = isWebtoonEditSessionActive()
-        val lockedAdapterPosition = if (active) {
-            webtoonAdapter.adapterPositionForImageIndex(webtoonLockedPageIndex ?: RecyclerView.NO_POSITION)
-                .takeIf { it != RecyclerView.NO_POSITION }
+        val lockedAdapterRange = if (active) {
+            webtoonAdapter.adapterPositionRangeForImageIndex(webtoonLockedPageIndex ?: RecyclerView.NO_POSITION)
         } else {
             null
         }
-        webtoonLayoutManager.setLockedPosition(lockedAdapterPosition)
+        webtoonLayoutManager.setLockedPositionRange(lockedAdapterRange)
         webtoonAdapter.updateEditSession(
             enabled = active,
             lockedImagePath = if (active) webtoonLockedPagePath else null,
