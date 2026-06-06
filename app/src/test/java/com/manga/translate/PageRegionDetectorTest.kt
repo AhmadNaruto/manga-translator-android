@@ -32,6 +32,83 @@ class PageRegionDetectorTest {
     }
 
     @Test
+    fun `long image region filter only removes screen-sized regions`() {
+        assertFalse(
+            shouldFilterLongImageRegion(
+                RectF(100f, 100f, 900f, 1500f),
+                pageWidth = 1000,
+                pageHeight = 7000
+            )
+        )
+        assertTrue(
+            shouldFilterLongImageRegion(
+                RectF(100f, 100f, 900f, 2050f),
+                pageWidth = 1000,
+                pageHeight = 7000
+            )
+        )
+    }
+
+    @Test
+    fun `long image region filter is disabled for regular pages`() {
+        assertFalse(
+            shouldFilterLongImageRegion(
+                RectF(100f, 100f, 900f, 2050f),
+                pageWidth = 1000,
+                pageHeight = 3000
+            )
+        )
+    }
+
+    @Test
+    fun `supplement rect merge keeps original rects when union would be screen-sized`() {
+        val rects = listOf(
+            RectF(100f, 100f, 220f, 1800f),
+            RectF(100f, 1700f, 220f, 2020f)
+        )
+
+        val merged = RectGeometryDeduplicator.mergeSupplementRects(
+            rects = rects,
+            imageWidth = 1000,
+            imageHeight = 7000,
+            maxMergedHeight = longImageMaxRegionHeight(pageWidth = 1000, pageHeight = 7000)
+        )
+
+        assertEquals(2, merged.size)
+        assertTrue(merged.any { it.top == 100f && it.bottom == 1800f })
+        assertTrue(merged.any { it.top == 1700f && it.bottom == 2020f })
+    }
+
+    @Test
+    fun `short OCR text merge keeps original bubbles when union would be screen-sized`() {
+        val bubbles = listOf(
+            OcrBubble(
+                id = 0,
+                rect = RectF(100f, 100f, 220f, 220f),
+                text = "あ",
+                source = BubbleSource.TEXT_DETECTOR
+            ),
+            OcrBubble(
+                id = 1,
+                rect = RectF(105f, 1900f, 225f, 2020f),
+                text = "い",
+                source = BubbleSource.TEXT_DETECTOR
+            )
+        )
+
+        val merged = RectGeometryDeduplicator.mergeShortTextDetectorOcrBubbles(
+            bubbles = bubbles,
+            imageWidth = 1000,
+            imageHeight = 7000,
+            maxMergedHeight = longImageMaxRegionHeight(pageWidth = 1000, pageHeight = 7000)
+        )
+
+        assertEquals(2, merged.size)
+        assertTrue(merged.any { it.rect.top == 100f && it.rect.bottom == 220f })
+        assertTrue(merged.any { it.rect.top == 1900f && it.rect.bottom == 2020f })
+    }
+
+    @Test
     fun `tile mask contour remaps from tile normalized coordinates to page normalized coordinates`() {
         val remapped = remapTileMaskContourToPage(
             contour = floatArrayOf(0f, 0f, 1f, 1f, 0.5f, 0.5f),

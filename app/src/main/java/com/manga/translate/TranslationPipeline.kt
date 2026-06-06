@@ -240,7 +240,12 @@ internal class TranslationPipeline(
             val mergedBubbles = RectGeometryDeduplicator.mergeShortTextDetectorOcrBubbles(
                 bubbles = bubbles,
                 imageWidth = pageRegions.width,
-                imageHeight = pageRegions.height
+                imageHeight = pageRegions.height,
+                maxMergedHeight = if (shouldUseLongImageTiling(pageRegions.width, pageRegions.height)) {
+                    longImageMaxRegionHeight(pageRegions.width, pageRegions.height)
+                } else {
+                    null
+                }
             )
             if (mergedBubbles.size < bubbles.size) {
                 AppLogger.log(

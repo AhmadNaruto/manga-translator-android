@@ -10,7 +10,8 @@ object RectGeometryDeduplicator {
     fun mergeSupplementRects(
         rects: List<RectF>,
         imageWidth: Int,
-        imageHeight: Int
+        imageHeight: Int,
+        maxMergedHeight: Float? = null
     ): List<RectF> {
         if (rects.size <= 1) return rects
         val imageArea = (imageWidth.toFloat() * imageHeight.toFloat()).coerceAtLeast(1f)
@@ -22,8 +23,9 @@ object RectGeometryDeduplicator {
             for (i in 0 until mergedRects.size) {
                 var j = i + 1
                 while (j < mergedRects.size) {
-                    if (shouldMergeRects(mergedRects[i], mergedRects[j], imageArea)) {
-                        mergedRects[i] = unionRects(mergedRects[i], mergedRects[j])
+                    val union = unionRects(mergedRects[i], mergedRects[j])
+                    if (shouldMergeRects(mergedRects[i], mergedRects[j], union, imageArea, maxMergedHeight)) {
+                        mergedRects[i] = union
                         mergedRects.removeAt(j)
                         merged = true
                     } else {
@@ -33,13 +35,14 @@ object RectGeometryDeduplicator {
                 }
             }
         }
-        return mergeDenseClusters(mergedRects, imageArea)
+        return mergeDenseClusters(mergedRects, imageArea, maxMergedHeight)
     }
 
     fun mergeShortTextDetectorOcrBubbles(
         bubbles: List<OcrBubble>,
         imageWidth: Int,
-        imageHeight: Int
+        imageHeight: Int,
+        maxMergedHeight: Float? = null
     ): List<OcrBubble> {
         if (bubbles.size <= 1) return bubbles
         val imageArea = (imageWidth.toFloat() * imageHeight.toFloat()).coerceAtLeast(1f)
@@ -50,7 +53,7 @@ object RectGeometryDeduplicator {
             for (i in 0 until merged.size) {
                 var j = i + 1
                 while (j < merged.size) {
-                    if (shouldMergeShortTextGroups(merged[i], merged[j], imageArea)) {
+                    if (shouldMergeShortTextGroups(merged[i], merged[j], imageArea, maxMergedHeight)) {
                         merged[i] = merged[i].mergeWith(merged[j])
                         merged.removeAt(j)
                         changed = true
@@ -63,7 +66,11 @@ object RectGeometryDeduplicator {
         return merged.mapIndexed { index, group -> group.toOcrBubble(index) }
     }
 
-    private fun mergeDenseClusters(rects: List<RectF>, imageArea: Float): List<RectF> {
+    private fun mergeDenseClusters(
+        rects: List<RectF>,
+        imageArea: Float,
+        maxMergedHeight: Float?
+    ): List<RectF> {
         if (rects.size <= DENSE_CLUSTER_MIN_COUNT) return rects
 
         // 第二阶段：对前面成对合并后仍残留的密集小框做连通分量(BFS)聚类。
@@ -94,7 +101,9 @@ object RectGeometryDeduplicator {
             if (component.size >= DENSE_CLUSTER_MIN_COUNT) {
                 val union = unionOfComponent(rects, component)
                 val unionArea = max(0f, union.width()) * max(0f, union.height())
-                if (unionArea / imageArea <= DENSE_CLUSTER_MAX_UNION_FRACTION) {
+                if (isMergedHeightAllowed(union, maxMergedHeight) &&
+                    unionArea / imageArea <= DENSE_CLUSTER_MAX_UNION_FRACTION
+                ) {
                     result.add(union)
                     continue
                 }
@@ -127,13 +136,15 @@ object RectGeometryDeduplicator {
     private fun shouldMergeShortTextGroups(
         a: MutableBubbleGroup,
         b: MutableBubbleGroup,
-        imageArea: Float
+        imageArea: Float,
+        maxMergedHeight: Float?
     ): Boolean {
         if (a.source != BubbleSource.TEXT_DETECTOR || b.source != BubbleSource.TEXT_DETECTOR) return false
         if (a.maskContour != null || b.maskContour != null) return false
         if (!isShortText(a.text) || !isShortText(b.text)) return false
 
         val union = unionRects(a.rect, b.rect)
+        if (!isMergedHeightAllowed(union, maxMergedHeight)) return false
         val unionArea = max(0f, union.width()) * max(0f, union.height())
         if (unionArea / imageArea > SHORT_TEXT_MAX_UNION_FRACTION) return false
 
@@ -240,10 +251,17 @@ object RectGeometryDeduplicator {
         return RectF(left, top, right, bottom)
     }
 
-    private fun shouldMergeRects(a: RectF, b: RectF, imageArea: Float): Boolean {
+    private fun shouldMergeRects(
+        a: RectF,
+        b: RectF,
+        union: RectF,
+        imageArea: Float,
+        maxMergedHeight: Float?
+    ): Boolean {
         val areaA = max(0f, a.width()) * max(0f, a.height())
         val areaB = max(0f, b.width()) * max(0f, b.height())
         if (areaA <= 0f || areaB <= 0f) return false
+        if (!isMergedHeightAllowed(union, maxMergedHeight)) return false
         val minArea = min(areaA, areaB)
         // 一框几乎被另一框包住时直接合并，不再走下面的阈值判断。
         val overlapOverMin = overlapOverMinArea(a, b, minArea)
@@ -256,7 +274,6 @@ object RectGeometryDeduplicator {
         val iouThreshold = lerp(MERGE_IOU_SMALL, MERGE_IOU_LARGE, sizeT)
 
         // 合并后会占据整页过大比例时放弃，避免把跨页的多个气泡塌缩成一个巨框。
-        val union = unionRects(a, b)
         val unionArea = max(0f, union.width()) * max(0f, union.height())
         if (unionArea / imageArea >= MERGE_MAX_UNION_FRACTION) return false
 
@@ -272,6 +289,10 @@ object RectGeometryDeduplicator {
         val expandedA = RectF(a.left - pad, a.top - pad, a.right + pad, a.bottom + pad)
         val expandedB = RectF(b.left - pad, b.top - pad, b.right + pad, b.bottom + pad)
         return RectF.intersects(expandedA, b) || RectF.intersects(expandedB, a)
+    }
+
+    private fun isMergedHeightAllowed(rect: RectF, maxMergedHeight: Float?): Boolean {
+        return maxMergedHeight == null || rect.height() < maxMergedHeight
     }
 
     private fun overlapOverMinArea(a: RectF, b: RectF, minArea: Float): Float {
