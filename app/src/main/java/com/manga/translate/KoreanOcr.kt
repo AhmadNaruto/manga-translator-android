@@ -169,8 +169,7 @@ class KoreanOcr(
         val firstVec = first.firstOrNull()
         if (firstVec !is FloatArray) return OcrResult("", 0f)
 
-        val result = StringBuilder()
-        val confs = ArrayList<Float>()
+        val tokens = ArrayList<OcrToken>()
         var prevIdx = -1
 
         fun appendIndex(maxIdx: Int, maxProb: Float) {
@@ -189,8 +188,7 @@ class KoreanOcr(
 
             // 添加字符
             if (maxIdx < charset.size) {
-                result.append(charset[maxIdx])
-                confs.add(maxProb)
+                tokens.add(OcrToken(charset[maxIdx], maxProb))
             }
         }
 
@@ -267,8 +265,39 @@ class KoreanOcr(
             }
         }
 
-        val score = if (confs.isEmpty()) 0f else confs.sum() / confs.size
-        return OcrResult(result.toString(), score)
+        val trimmedTokens = trimLowConfidenceTail(tokens)
+        val score = if (trimmedTokens.isEmpty()) {
+            0f
+        } else {
+            trimmedTokens.sumOf { it.score.toDouble() }.toFloat() / trimmedTokens.size
+        }
+        return OcrResult(
+            text = trimmedTokens.joinToString(separator = "") { it.text },
+            score = score
+        )
+    }
+
+    private fun trimLowConfidenceTail(tokens: List<OcrToken>): List<OcrToken> {
+        if (tokens.isEmpty()) return tokens
+        var endExclusive = tokens.size
+        while (endExclusive > 0) {
+            val token = tokens[endExclusive - 1]
+            if (!shouldTrimTailToken(token)) break
+            endExclusive--
+        }
+        return if (endExclusive == tokens.size) tokens else tokens.subList(0, endExclusive)
+    }
+
+    private fun shouldTrimTailToken(token: OcrToken): Boolean {
+        if (token.score >= LOW_CONFIDENCE_TAIL_SCORE) return false
+        return token.text.isNotBlank() && token.text.all(::isSuspiciousTailChar)
+    }
+
+    private fun isSuspiciousTailChar(char: Char): Boolean {
+        if (char in '가'..'힣') return false
+        if (char in 'ㄱ'..'ㅎ' || char in 'ㅏ'..'ㅣ') return false
+        if (char.isLetterOrDigit()) return false
+        return !char.isWhitespace()
     }
 
     /**
@@ -345,4 +374,13 @@ class KoreanOcr(
         val text: String,
         val score: Float
     )
+
+    private data class OcrToken(
+        val text: String,
+        val score: Float
+    )
+
+    companion object {
+        private const val LOW_CONFIDENCE_TAIL_SCORE = 0.65f
+    }
 }

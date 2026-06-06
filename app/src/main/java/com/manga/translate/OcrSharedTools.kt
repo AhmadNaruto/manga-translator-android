@@ -188,7 +188,10 @@ class BubbleTextRecognizer(
                 val lineRects = lineDetector?.detectLines(crop).orEmpty()
                 val lines = recognizeKoreanLines(crop, lineRects, engine)
                 if (lines.isEmpty()) {
-                    engine.recognize(crop).trim()
+                    val decoded = engine.recognizeWithScore(crop)
+                    decoded.text.trim().takeIf {
+                        decoded.score >= DEFAULT_KO_MIN_LINE_SCORE && it.isNotBlank()
+                    }.orEmpty()
                 } else {
                     lines.joinToString("\n") { it.text }
                 }
@@ -264,7 +267,7 @@ fun recognizeKoreanLines(
     source: Bitmap,
     lineRects: List<RectF>,
     ocrEngine: KoreanOcr,
-    minLineScore: Float = DEFAULT_EN_MIN_LINE_SCORE
+    minLineScore: Float = DEFAULT_KO_MIN_LINE_SCORE
 ): List<EnglishLine> {
     if (lineRects.isEmpty()) return emptyList()
     val results = ArrayList<EnglishLine>(lineRects.size)
@@ -277,3 +280,5 @@ fun recognizeKoreanLines(
     }
     return results
 }
+
+const val DEFAULT_KO_MIN_LINE_SCORE = 0.65f
