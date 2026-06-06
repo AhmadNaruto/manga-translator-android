@@ -743,7 +743,7 @@ internal fun buildDetectionStrategyTag(
     pageHeight: Int
 ): String {
     return if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
-        "det_tiled_long_v1"
+        "det_tiled_long_v2"
     } else {
         "det_full_v1"
     }

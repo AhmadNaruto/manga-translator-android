@@ -116,11 +116,20 @@ internal fun choosePreferredBubbleCandidateIndex(
 }
 
 internal fun shouldTreatRectsAsSameBubbleForDedup(a: RectF, b: RectF): Boolean {
+    val areaA = rectAreaValue(a)
+    val areaB = rectAreaValue(b)
+    if (areaA <= 0f || areaB <= 0f) return false
     if (rectIou(a, b) >= BUBBLE_DEDUP_IOU_THRESHOLD) return true
-    val minArea = min(rectAreaValue(a), rectAreaValue(b)).coerceAtLeast(1f)
+
+    val minArea = min(areaA, areaB).coerceAtLeast(1f)
     val overlapOverMin = rectIntersectionArea(a, b) / minArea
-    return overlapOverMin >= BUBBLE_DEDUP_CONTAINMENT_THRESHOLD &&
+    if (overlapOverMin >= BUBBLE_DEDUP_CONTAINMENT_THRESHOLD &&
         (rectContains(a, b) || rectContains(b, a))
+    ) {
+        return true
+    }
+
+    return shouldTreatPartiallyShiftedRectsAsSameBubble(a, b, overlapOverMin)
 }
 
 internal fun shouldFilterLongImageRegion(
@@ -678,6 +687,10 @@ private const val LONG_IMAGE_TILE_OVERLAP_MIN_PX = 240
 private const val LONG_IMAGE_REGION_SCREEN_HEIGHT_RATIO = 0.85f
 private const val BUBBLE_DEDUP_IOU_THRESHOLD = 0.65f
 private const val BUBBLE_DEDUP_CONTAINMENT_THRESHOLD = 0.9f
+private const val BUBBLE_DEDUP_PARTIAL_OVERLAP_MIN_RATIO = 0.58f
+private const val BUBBLE_DEDUP_AXIS_OVERLAP_MIN_RATIO = 0.55f
+private const val BUBBLE_DEDUP_CENTER_DRIFT_RATIO = 0.38f
+private const val BUBBLE_DEDUP_CENTER_DRIFT_PAD = 18f
 
 private fun rectIou(a: RectF, b: RectF): Float {
     val inter = rectIntersectionArea(a, b)
@@ -702,4 +715,31 @@ private fun rectContains(outer: RectF, inner: RectF): Boolean {
         outer.top <= inner.top &&
         outer.right >= inner.right &&
         outer.bottom >= inner.bottom
+}
+
+private fun shouldTreatPartiallyShiftedRectsAsSameBubble(
+    a: RectF,
+    b: RectF,
+    overlapOverMin: Float
+): Boolean {
+    if (overlapOverMin < BUBBLE_DEDUP_PARTIAL_OVERLAP_MIN_RATIO) return false
+
+    val overlapX = max(0f, min(a.right, b.right) - max(a.left, b.left))
+    val overlapY = max(0f, min(a.bottom, b.bottom) - max(a.top, b.top))
+    val minWidth = min(a.width(), b.width()).coerceAtLeast(1f)
+    val minHeight = min(a.height(), b.height()).coerceAtLeast(1f)
+    if (overlapX / minWidth < BUBBLE_DEDUP_AXIS_OVERLAP_MIN_RATIO) return false
+    if (overlapY / minHeight < BUBBLE_DEDUP_AXIS_OVERLAP_MIN_RATIO) return false
+
+    val maxWidth = max(a.width(), b.width()).coerceAtLeast(1f)
+    val maxHeight = max(a.height(), b.height()).coerceAtLeast(1f)
+    val centerAX = (a.left + a.right) * 0.5f
+    val centerAY = (a.top + a.bottom) * 0.5f
+    val centerBX = (b.left + b.right) * 0.5f
+    val centerBY = (b.top + b.bottom) * 0.5f
+    val maxCenterDx = maxWidth * BUBBLE_DEDUP_CENTER_DRIFT_RATIO + BUBBLE_DEDUP_CENTER_DRIFT_PAD
+    val maxCenterDy = maxHeight * BUBBLE_DEDUP_CENTER_DRIFT_RATIO + BUBBLE_DEDUP_CENTER_DRIFT_PAD
+
+    return abs(centerAX - centerBX) <= maxCenterDx &&
+        abs(centerAY - centerBY) <= maxCenterDy
 }

@@ -166,16 +166,22 @@ class PageRegionDetectorTest {
         val overlappingB = RectF(5f, 5f, 95f, 95f)
         val container = RectF(0f, 0f, 100f, 100f)
         val inside = RectF(5f, 5f, 95f, 95f)
+        val shiftedTileDuplicateA = RectF(100f, 1800f, 420f, 2120f)
+        val shiftedTileDuplicateB = RectF(155f, 1740f, 455f, 2050f)
         val separate = RectF(150f, 0f, 250f, 100f)
+        val stackedNeighborA = RectF(100f, 1000f, 420f, 1320f)
+        val stackedNeighborB = RectF(120f, 1225f, 440f, 1545f)
 
         assertTrue(shouldTreatRectsAsSameBubbleForDedup(overlappingA, overlappingB))
         assertTrue(shouldTreatRectsAsSameBubbleForDedup(container, inside))
+        assertTrue(shouldTreatRectsAsSameBubbleForDedup(shiftedTileDuplicateA, shiftedTileDuplicateB))
         assertFalse(shouldTreatRectsAsSameBubbleForDedup(overlappingA, separate))
+        assertFalse(shouldTreatRectsAsSameBubbleForDedup(stackedNeighborA, stackedNeighborB))
     }
 
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals("det_full_v1", buildDetectionStrategyTag(pageWidth = 1600, pageHeight = 3000))
-        assertEquals("det_tiled_long_v1", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
+        assertEquals("det_tiled_long_v2", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
     }
 }
