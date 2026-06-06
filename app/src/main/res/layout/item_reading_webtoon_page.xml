@@ -20,7 +20,7 @@
             android:textSize="13sp" />
     </FrameLayout>
 
-    <ImageView
+    <com.manga.translate.ReadingRegionImageView
         android:id="@+id/reading_page_image"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

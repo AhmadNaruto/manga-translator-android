@@ -514,6 +514,7 @@ class WebtoonReadingAdapter(
             binding.readingPageOverlay.onBubbleLongPress = null
             binding.readingPageOverlay.visibility = View.GONE
             applyPlaceholder(item)
+            binding.readingPageImage.setRegionSource(null)
             binding.readingPageImage.setImageDrawable(null)
             imageTransformController.setCurrentBitmap(null)
             loadPage(item)
@@ -633,6 +634,7 @@ class WebtoonReadingAdapter(
                         translationDeferred?.await().also { translationCache[imagePath] = it }
                     }
                     currentTranslation = translation
+                    binding.readingPageImage.setRegionSource(null)
                     binding.readingPageImage.setImageDrawable(null)
                     binding.readingPageOverlay.visibility = View.GONE
                     showPlaceholder(item)
@@ -644,6 +646,7 @@ class WebtoonReadingAdapter(
                 currentImageHeight = decoded.sourceHeight
                 currentTranslation = null
                 updatePageHeightForImage(decoded.sourceWidth, decoded.sourceHeight, item.tile)
+                binding.readingPageImage.setRegionSource(decoded.regionSource)
                 binding.readingPageImage.setImageDrawable(decoded.drawable)
                 binding.root.post {
                     if (boundItem?.stableKey != item.stableKey) return@post
@@ -679,6 +682,7 @@ class WebtoonReadingAdapter(
             currentImageWidth = 0
             currentImageHeight = 0
             currentTranslation = null
+            binding.readingPageImage.setRegionSource(null)
             binding.readingPageImage.setImageDrawable(null)
             imageTransformController.setCurrentBitmap(null)
             binding.readingPageOverlay.onOffsetChanged = null

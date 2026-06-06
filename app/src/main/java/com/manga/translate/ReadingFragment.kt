@@ -369,6 +369,7 @@ class ReadingFragment : Fragment() {
             binding.translationOverlay.visibility = View.GONE
             binding.readingEditControls.visibility = View.GONE
             hideResizePanel()
+            binding.readingImage.setRegionSource(null)
             binding.readingImage.setImageDrawable(null)
             displayedImagePath = null
             displayedPageIndex = null
@@ -431,6 +432,7 @@ class ReadingFragment : Fragment() {
             val direction = if ((previousDisplayedIndex ?: targetIndex) < targetIndex) -1 else 1
             binding.readingImage.translationX = 0f
             if (decoded != null) {
+                binding.readingImage.setRegionSource(decoded.regionSource)
                 binding.readingImage.setImageDrawable(decoded.drawable)
                 currentDecodedImage = decoded
                 currentBitmap = bitmap
@@ -441,6 +443,7 @@ class ReadingFragment : Fragment() {
                 displayedImagePath = targetPath
                 displayedPageIndex = targetIndex
             } else {
+                binding.readingImage.setRegionSource(null)
                 binding.readingImage.setImageDrawable(null)
                 currentDecodedImage = null
                 currentBitmap = null
@@ -502,6 +505,7 @@ class ReadingFragment : Fragment() {
         currentImageHeight = 0
         displayedPageIndex = null
         displayedImagePath = null
+        binding.readingImage.setRegionSource(null)
         imageTransformController.setCurrentBitmap(null)
         finishPageTransitionImmediately()
         if (images.isEmpty() || folder == null) {

@@ -14,7 +14,15 @@ data class DecodedReadingBitmap(
     val sourceHeight: Int,
     val displayWidth: Int,
     val displayHeight: Int,
-    val isTiled: Boolean
+    val isTiled: Boolean,
+    val regionSource: ReadingRegionImageSource? = null
+)
+
+data class ReadingRegionImageSource(
+    val imageFile: java.io.File,
+    val sourceWidth: Int,
+    val sourceHeight: Int,
+    val sampleSize: Int
 )
 
 internal data class ReadingSourceTile(
@@ -64,7 +72,23 @@ object ReadingBitmapDecoder {
             targetHeight = safeTargetHeight * DETAIL_MULTIPLIER
         )
         if (shouldUseTiledDecode(sourceWidth, sourceHeight, sampleSize)) {
-            return decodeTiled(imageFile, sourceWidth, sourceHeight, sampleSize)
+            val displayWidth = ceilDiv(sourceWidth, sampleSize)
+            val displayHeight = ceilDiv(sourceHeight, sampleSize)
+            return DecodedReadingBitmap(
+                drawable = ReadingTiledBitmapDrawable.empty(displayWidth, displayHeight),
+                bitmap = null,
+                sourceWidth = sourceWidth,
+                sourceHeight = sourceHeight,
+                displayWidth = displayWidth,
+                displayHeight = displayHeight,
+                isTiled = true,
+                regionSource = ReadingRegionImageSource(
+                    imageFile = imageFile,
+                    sourceWidth = sourceWidth,
+                    sourceHeight = sourceHeight,
+                    sampleSize = sampleSize
+                )
+            )
         }
         val options = BitmapFactory.Options().apply {
             inSampleSize = sampleSize

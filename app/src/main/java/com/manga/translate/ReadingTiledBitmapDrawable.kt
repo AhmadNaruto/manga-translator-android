@@ -63,6 +63,14 @@ class ReadingTiledBitmapDrawable(
     override fun getOpacity(): Int = PixelFormat.OPAQUE
 
     companion object {
+        fun empty(width: Int, height: Int): ReadingTiledBitmapDrawable {
+            return ReadingTiledBitmapDrawable(
+                tiles = emptyList(),
+                imageWidth = width.coerceAtLeast(1),
+                imageHeight = height.coerceAtLeast(1)
+            )
+        }
+
         fun single(bitmap: Bitmap): ReadingTiledBitmapDrawable {
             return ReadingTiledBitmapDrawable(
                 tiles = listOf(ReadingBitmapTile(bitmap = bitmap, top = 0)),
