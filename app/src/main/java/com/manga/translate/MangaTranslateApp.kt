@@ -1,15 +1,40 @@
 package com.manga.translate
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import androidx.appcompat.app.AppCompatDelegate
 import com.manga.translate.di.AppContainer
+import java.util.concurrent.atomic.AtomicInteger
 
 class MangaTranslateApp : Application() {
     internal val appContainer by lazy(LazyThreadSafetyMode.NONE) { AppContainer(this) }
+    private val startedActivities = AtomicInteger(0)
 
     override fun onCreate() {
         super.onCreate()
         AppLogger.init(this)
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) {
+                if (startedActivities.incrementAndGet() == 1) {
+                    appContainer.localModelMemoryManager.setAppInForeground(true)
+                }
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                val remaining = startedActivities.decrementAndGet().coerceAtLeast(0)
+                if (remaining == 0) {
+                    startedActivities.set(0)
+                    appContainer.localModelMemoryManager.setAppInForeground(false)
+                }
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
         val settingsStore = appContainer.settingsStore
         AppCompatDelegate.setApplicationLocales(settingsStore.loadAppLanguage().toLocales())
         val themeMode = settingsStore.loadThemeMode()

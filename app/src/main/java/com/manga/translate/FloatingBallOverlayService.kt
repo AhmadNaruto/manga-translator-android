@@ -115,6 +115,7 @@ class FloatingBallOverlayService : Service() {
     private var autoCloseReferenceFrame: ScreenChangeReferenceFrame? = null
     private var autoCloseCheckJob: Job? = null
     private var blankBubbleErrorDialog: AlertDialog? = null
+    private var localModelReleaseCallback: AutoCloseable? = null
     private val hideProgressStatusRunnable = Runnable {
         progressStatusView?.visibility = View.GONE
     }
@@ -146,6 +147,13 @@ class FloatingBallOverlayService : Service() {
         }
     }
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        localModelReleaseCallback = appContainer.localModelMemoryManager.registerReleaseCallback {
+            textDetector = null
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         AppLogger.log("FloatingOCR", "Service onStartCommand action=${intent?.action ?: "null"}")
@@ -185,6 +193,8 @@ class FloatingBallOverlayService : Service() {
         autoCloseCheckJob?.cancel()
         blankBubbleErrorDialog?.dismiss()
         blankBubbleErrorDialog = null
+        localModelReleaseCallback?.close()
+        localModelReleaseCallback = null
         clearCurrentSession()
         releaseProjection()
         removeOverlay()
@@ -753,6 +763,7 @@ class FloatingBallOverlayService : Service() {
         detectJob?.cancel()
         detectJob = scope.launch(Dispatchers.Default) {
             val runningJob = currentCoroutineContext()[Job]
+            val localModelLease = appContainer.localModelMemoryManager.acquire("FloatingEdit")
             try {
                 val floatingTimeoutMs =
                     settingsStore.loadFloatingTranslateApiSettings().timeoutSeconds * 1000
@@ -811,6 +822,7 @@ class FloatingBallOverlayService : Service() {
                     showApiErrorDialog(e.errorCode, e.responseBody)
                 }
             } finally {
+                localModelLease.close()
                 bitmapSnapshot.recycle()
                 withContext(Dispatchers.Main) {
                     if (detectJob === runningJob) {
@@ -948,6 +960,7 @@ class FloatingBallOverlayService : Service() {
         showProgressStatus(R.string.floating_progress_capturing)
         detectJob = scope.launch(Dispatchers.Default) {
             val runningJob = currentCoroutineContext()[Job]
+            val localModelLease = appContainer.localModelMemoryManager.acquire("FloatingOCR")
             var bitmap: Bitmap? = null
             try {
                 bitmap = screenCaptureSession.captureCurrentScreen()
@@ -1192,6 +1205,7 @@ class FloatingBallOverlayService : Service() {
                     ).show()
                 }
             } finally {
+                localModelLease.close()
                 bitmap?.recycle()
                 withContext(Dispatchers.Main) {
                     if (detectJob === runningJob) {

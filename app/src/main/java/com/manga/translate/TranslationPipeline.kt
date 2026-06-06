@@ -517,6 +517,10 @@ internal class TranslationPipeline(
         return store.translationFileFor(imageFile)
     }
 
+    fun releaseLoadedModels() {
+        pageRegionDetector.releaseLoadedDetectors()
+    }
+
     private suspend fun detectImageBubbles(
         imageFile: File,
         sourceBitmap: Bitmap

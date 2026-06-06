@@ -16,6 +16,7 @@ internal class ReadingEmptyBubbleCoordinator(
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext),
     private val bubbleTextRecognizer: BubbleTextRecognizer,
     private val textBubbleTranslationCoordinator: TextBubbleTranslationCoordinator,
+    private val localModelMemoryManager: LocalModelMemoryManager,
     private val languageKeyPrefix: String = "translation_language_"
 ) {
     private val appContext = context.applicationContext
@@ -44,52 +45,57 @@ internal class ReadingEmptyBubbleCoordinator(
         }
         val glossary = glossaryStore.load(folder)
         val cropSource = PipelineBitmapDecoder.openCropSource(imageFile) ?: return@withContext null
+        val localModelLease = localModelMemoryManager.acquire("ReadingEmptyBubble")
 
-        cropSource.use {
-            val candidates = ArrayList<OcrBubble>(targets.size)
-            val removedIds = HashSet<Int>()
-            if (!ocrSettings.useLocalOcr && !ocrSettings.isValid()) {
-                AppLogger.log("Reading", "Missing OCR API settings")
-                return@withContext null
-            }
-            for (bubble in targets) {
-                val text = ocrBubble(cropSource, bubble.rect, language, ocrSettings.useLocalOcr).trim()
-                if (text.length <= 2) {
-                    removedIds.add(bubble.id)
-                } else {
-                    candidates.add(OcrBubble(bubble.id, bubble.rect, text, bubble.source))
+        try {
+            cropSource.use {
+                val candidates = ArrayList<OcrBubble>(targets.size)
+                val removedIds = HashSet<Int>()
+                if (!ocrSettings.useLocalOcr && !ocrSettings.isValid()) {
+                    AppLogger.log("Reading", "Missing OCR API settings")
+                    return@withContext null
                 }
-            }
+                for (bubble in targets) {
+                    val text = ocrBubble(cropSource, bubble.rect, language, ocrSettings.useLocalOcr).trim()
+                    if (text.length <= 2) {
+                        removedIds.add(bubble.id)
+                    } else {
+                        candidates.add(OcrBubble(bubble.id, bubble.rect, text, bubble.source))
+                    }
+                }
 
-            val remainingBubbles = baseTranslation.bubbles.filterNot { removedIds.contains(it.id) }
-            if (candidates.isEmpty()) {
-                val updated = baseTranslation.copy(bubbles = remainingBubbles)
+                val remainingBubbles = baseTranslation.bubbles.filterNot { removedIds.contains(it.id) }
+                if (candidates.isEmpty()) {
+                    val updated = baseTranslation.copy(bubbles = remainingBubbles)
+                    withContext(Dispatchers.IO) {
+                        translationStore.save(imageFile, updated)
+                    }
+                    return@withContext EmptyBubbleProcessOutcome(updated, translatedByLlm = false)
+                }
+
+                val translated = translateOcrBubbles(imageFile, candidates, glossary, language)
+                if (translated == null) {
+                    AppLogger.log("Reading", "Empty bubble translation returned null, keep bubble empty")
+                    return@withContext null
+                }
+                if (translated.glossaryUsed.isNotEmpty()) {
+                    glossary.putAll(translated.glossaryUsed)
+                    withContext(Dispatchers.IO) {
+                        glossaryStore.save(folder, glossary)
+                    }
+                }
+                val translationMap = translated.bubbles.associateBy { it.id }
+                val merged = remainingBubbles.map { bubble ->
+                    translationMap[bubble.id]?.let { bubble.withContentFrom(it) } ?: bubble
+                }
+                val updated = baseTranslation.copy(bubbles = merged)
                 withContext(Dispatchers.IO) {
                     translationStore.save(imageFile, updated)
                 }
-                return@withContext EmptyBubbleProcessOutcome(updated, translatedByLlm = false)
+                EmptyBubbleProcessOutcome(updated, translatedByLlm = true)
             }
-
-            val translated = translateOcrBubbles(imageFile, candidates, glossary, language)
-            if (translated == null) {
-                AppLogger.log("Reading", "Empty bubble translation returned null, keep bubble empty")
-                return@withContext null
-            }
-            if (translated.glossaryUsed.isNotEmpty()) {
-                glossary.putAll(translated.glossaryUsed)
-                withContext(Dispatchers.IO) {
-                    glossaryStore.save(folder, glossary)
-                }
-            }
-            val translationMap = translated.bubbles.associateBy { it.id }
-            val merged = remainingBubbles.map { bubble ->
-                translationMap[bubble.id]?.let { bubble.withContentFrom(it) } ?: bubble
-            }
-            val updated = baseTranslation.copy(bubbles = merged)
-            withContext(Dispatchers.IO) {
-                translationStore.save(imageFile, updated)
-            }
-            EmptyBubbleProcessOutcome(updated, translatedByLlm = true)
+        } finally {
+            localModelLease.close()
         }
     }
 

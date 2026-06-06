@@ -17,6 +17,7 @@ class OcrEngineRegistry(
     private var koreanOcr: KoreanOcr? = null
     private var englishLineDetector: EnglishLineDetector? = null
 
+    @Synchronized
     fun getMangaOcr(logTag: String): MangaOcr? {
         if (mangaOcr != null) return mangaOcr
         return try {
@@ -27,6 +28,7 @@ class OcrEngineRegistry(
         }
     }
 
+    @Synchronized
     fun getMangaOcrMobile(logTag: String): MangaOcrMobile? {
         if (mangaOcrMobile != null) return mangaOcrMobile
         if (mangaOcrMobileInitFailed) return null
@@ -41,6 +43,7 @@ class OcrEngineRegistry(
         }
     }
 
+    @Synchronized
     fun getEnglishOcr(logTag: String): EnglishOcr? {
         if (englishOcr != null) return englishOcr
         return try {
@@ -51,6 +54,7 @@ class OcrEngineRegistry(
         }
     }
 
+    @Synchronized
     fun getKoreanOcr(logTag: String): KoreanOcr? {
         if (koreanOcr != null) return koreanOcr
         return try {
@@ -61,6 +65,7 @@ class OcrEngineRegistry(
         }
     }
 
+    @Synchronized
     fun getEnglishLineDetector(logTag: String): EnglishLineDetector? {
         if (englishLineDetector != null) return englishLineDetector
         return try {
@@ -70,6 +75,23 @@ class OcrEngineRegistry(
         } catch (e: Exception) {
             AppLogger.log(logTag, "Failed to init English line detector", e)
             null
+        }
+    }
+
+    @Synchronized
+    fun releaseLoadedEngines() {
+        val hadLoadedEngines = mangaOcr != null ||
+            mangaOcrMobile != null ||
+            englishOcr != null ||
+            koreanOcr != null ||
+            englishLineDetector != null
+        mangaOcr = null
+        mangaOcrMobile = null
+        englishOcr = null
+        koreanOcr = null
+        englishLineDetector = null
+        if (hadLoadedEngines) {
+            AppLogger.log("OcrEngineRegistry", "Released loaded OCR engine references")
         }
     }
 }

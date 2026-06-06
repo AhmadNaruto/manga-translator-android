@@ -116,6 +116,21 @@ object OnnxRuntimeSupport {
         return target
     }
 
+    fun closeCachedSessions() {
+        val sessions = synchronized(cacheLock) {
+            val current = sessionCache.values.toList()
+            sessionCache.clear()
+            current
+        }
+        sessions.forEach { session ->
+            runCatching { session.close() }
+                .onFailure { AppLogger.log("OnnxRuntime", "Failed to close cached session", it) }
+        }
+        if (sessions.isNotEmpty()) {
+            AppLogger.log("OnnxRuntime", "Closed ${sessions.size} cached sessions")
+        }
+    }
+
     private fun copyAssetToCache(
         target: File,
         assetProvider: (String) -> java.io.InputStream,

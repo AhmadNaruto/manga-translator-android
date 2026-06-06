@@ -418,6 +418,15 @@ internal class PageRegionDetector(
         }
     }
 
+    fun releaseLoadedDetectors() {
+        val hadLoadedDetectors = bubbleDetector != null || textDetector != null
+        bubbleDetector = null
+        textDetector = null
+        if (hadLoadedDetectors) {
+            AppLogger.log("PageRegionDetector", "Released loaded detector references")
+        }
+    }
+
     private fun getTextDetector(logTag: String): TextDetector? {
         if (textDetector != null) return textDetector
         return try {

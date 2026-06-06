@@ -27,6 +27,7 @@ class TranslationKeepAliveService : Service() {
         TranslationTaskPersistence(applicationContext)
     }
     private var translationJob: Job? = null
+    private var localModelLease: LocalModelMemoryManager.LocalModelLease? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -79,6 +80,7 @@ class TranslationKeepAliveService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         translationJob?.cancel()
+        releaseLocalModelLease()
         serviceScope.cancel()
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -133,6 +135,7 @@ class TranslationKeepAliveService : Service() {
         if (translationJob?.isActive == true) return
         taskPersistence.save(descriptor)
         acquireWakeLock()
+        localModelLease = applicationContext.appContainer.localModelMemoryManager.acquire("TranslationKeepAlive")
         val translationActionsCallback: (Boolean) -> Unit = { enabled ->
             LibraryUiBridge.setTranslationActionsEnabled(enabled)
         }
@@ -149,6 +152,7 @@ class TranslationKeepAliveService : Service() {
             )
             translationActionsCallback(true)
             taskPersistence.clear()
+            releaseLocalModelLease()
             releaseWakeLock()
             stopSelf()
             return
@@ -163,6 +167,7 @@ class TranslationKeepAliveService : Service() {
                     )
                     translationActionsCallback(true)
                     taskPersistence.clear()
+                    releaseLocalModelLease()
                     releaseWakeLock()
                     stopSelf()
                     return
@@ -200,6 +205,7 @@ class TranslationKeepAliveService : Service() {
             // The coordinator may return null when everything is already done,
             // inputs are empty, or startup validation fails before launching a job.
             translationActionsCallback(true)
+            releaseLocalModelLease()
             stopIdleTranslationTask(clearPersistedTask = true)
             return
         }
@@ -207,9 +213,15 @@ class TranslationKeepAliveService : Service() {
             translationJob = null
             translationActionsCallback(true)
             taskPersistence.clear()
+            releaseLocalModelLease()
             releaseWakeLock()
             stopSelf()
         }
+    }
+
+    private fun releaseLocalModelLease() {
+        localModelLease?.close()
+        localModelLease = null
     }
 
     private fun ensureForegroundNotificationChannel() {
