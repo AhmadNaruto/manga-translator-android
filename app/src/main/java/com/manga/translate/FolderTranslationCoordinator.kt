@@ -362,7 +362,6 @@ internal class FolderTranslationCoordinator(
                 try {
                     val glossary = glossaryStore.load(folder).toMutableMap()
                     val glossaryMutex = Mutex()
-                    ui.setFolderStatus(appContext.getString(R.string.translation_preparing))
                     failed = executeConcurrentStandardPages(
                         pages = pendingImages,
                         folder = folder,
@@ -372,6 +371,14 @@ internal class FolderTranslationCoordinator(
                         language = language,
                         glossary = glossary,
                         glossaryMutex = glossaryMutex,
+                        onPrepareProgress = { processed, total, imageName ->
+                            reportPreprocessProgress(
+                                stage = appContext.getString(R.string.folder_preprocess_stage_ocr),
+                                processed = processed,
+                                total = total,
+                                imageName = imageName
+                            )
+                        },
                         onCountUpdated = { translatedCount ->
                             ui.setFolderStatus(
                                 appContext.getString(
@@ -727,6 +734,18 @@ internal class FolderTranslationCoordinator(
                 language = task.language,
                 glossary = glossary,
                 glossaryMutex = glossaryMutex,
+                onPrepareProgress = { processed, total, imageName ->
+                    reportCollectionPreprocessProgress(
+                        chapterIndex = chapterIndex,
+                        chapterTotal = chapterTotal,
+                        imageIndex = translatedImages + processed,
+                        imageTotal = totalImages,
+                        chapterName = task.folder.name,
+                        imageName = imageName,
+                        processed = processed,
+                        total = total
+                    )
+                },
                 onCountUpdated = { processedCount ->
                     val imageName = task.pendingImages
                         .getOrNull((processedCount - 1).coerceAtLeast(0))
@@ -903,6 +922,51 @@ internal class FolderTranslationCoordinator(
         )
     }
 
+    private fun reportCollectionPreprocessProgress(
+        chapterIndex: Int,
+        chapterTotal: Int,
+        imageIndex: Int,
+        imageTotal: Int,
+        chapterName: String,
+        imageName: String,
+        processed: Int,
+        total: Int
+    ) {
+        val safeChapterIndex = (chapterIndex + 1).coerceIn(1, chapterTotal.coerceAtLeast(1))
+        val safeChapterTotal = chapterTotal.coerceAtLeast(1)
+        val safeImageIndex = imageIndex.coerceIn(0, imageTotal.coerceAtLeast(1))
+        val safeImageTotal = imageTotal.coerceAtLeast(1)
+        val safeProcessed = processed.coerceIn(0, total.coerceAtLeast(1))
+        val safeTotal = total.coerceAtLeast(1)
+        val left = appContext.getString(
+            R.string.folder_collection_translation_progress,
+            safeChapterIndex,
+            safeChapterTotal,
+            safeImageIndex,
+            safeImageTotal
+        )
+        val right = appContext.getString(
+            R.string.folder_collection_translation_target,
+            chapterName,
+            imageName
+        )
+        val preprocess = appContext.getString(
+            R.string.folder_preprocess_progress,
+            appContext.getString(R.string.folder_preprocess_stage_ocr),
+            safeProcessed,
+            safeTotal
+        )
+        ui.setFolderStatus(left, "$right  $preprocess")
+        TranslationKeepAliveService.updateProgress(
+            appContext,
+            safeImageIndex,
+            safeImageTotal,
+            "$left  $chapterName / $imageName  $preprocess",
+            appContext.getString(R.string.translation_keepalive_title),
+            appContext.getString(R.string.translation_keepalive_message)
+        )
+    }
+
     private suspend fun reportModelError(content: String): ModelErrorAction {
         val resolution = CompletableDeferred<ModelErrorAction>()
         if (!ui.isUiAttached()) {
@@ -944,6 +1008,7 @@ internal class FolderTranslationCoordinator(
         language: TranslationLanguage,
         glossary: MutableMap<String, String>,
         glossaryMutex: Mutex,
+        onPrepareProgress: suspend (processed: Int, total: Int, imageName: String) -> Unit,
         onCountUpdated: suspend (Int) -> Unit
     ): Boolean {
         val maxConcurrency = settingsStore.loadMaxConcurrency()
@@ -955,9 +1020,11 @@ internal class FolderTranslationCoordinator(
         val requestException = AtomicReference<LlmRequestException?>(null)
         val scheduler = WeightedTranslationProviderScheduler(settingsStore.loadMainTranslationProviderPool())
         val preparedPages = ArrayList<PreparedStandardPage>(pages.size)
+        onPrepareProgress(0, pages.size, "")
 
-        for (image in pages) {
+        for ((index, image) in pages.withIndex()) {
             currentCoroutineContext().ensureActive()
+            onPrepareProgress(index, pages.size, image.name)
             val prepared = try {
                 prepareStandardPageForTranslation(
                     image = image,
@@ -976,7 +1043,11 @@ internal class FolderTranslationCoordinator(
                 recordPageFailure(folder, image, null)
             } else {
                 preparedPages.add(prepared)
+                if (prepared.ocrResult != null) {
+                    progressStore.update(folder, image.name, PageProgressStatus.OCR_DONE)
+                }
             }
+            onPrepareProgress(index + 1, pages.size, image.name)
         }
         supervisorScope {
             val tasks = preparedPages.map { prepared ->
