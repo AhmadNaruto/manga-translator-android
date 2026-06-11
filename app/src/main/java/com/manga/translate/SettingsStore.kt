@@ -28,7 +28,9 @@ data class OcrApiSettings(
     val apiKey: String,
     val modelName: String,
     val timeoutSeconds: Int,
-    val apiOcrConcurrencyLimit: Int = 1
+    val apiOcrConcurrencyLimit: Int = 1,
+    // 0 = auto (determined by device performance); positive = manual override
+    val localOcrConcurrencyLimit: Int = 0
 ) {
     fun isValid(): Boolean {
         return useLocalOcr || (apiUrl.isNotBlank() && apiKey.isNotBlank() && modelName.isNotBlank())
@@ -265,7 +267,11 @@ class SettingsStore(context: Context) {
             apiOcrConcurrencyLimit = prefs.getInt(
                 KEY_OCR_API_CONCURRENCY,
                 DEFAULT_OCR_API_CONCURRENCY
-            ).coerceIn(MIN_OCR_API_CONCURRENCY, MAX_OCR_API_CONCURRENCY)
+            ).coerceIn(MIN_OCR_API_CONCURRENCY, MAX_OCR_API_CONCURRENCY),
+            localOcrConcurrencyLimit = prefs.getInt(
+                KEY_LOCAL_OCR_CONCURRENCY,
+                DEFAULT_LOCAL_OCR_CONCURRENCY
+            ).coerceIn(MIN_LOCAL_OCR_CONCURRENCY, MAX_LOCAL_OCR_CONCURRENCY)
         )
     }
 
@@ -274,6 +280,8 @@ class SettingsStore(context: Context) {
             .coerceIn(MIN_OCR_API_TIMEOUT_SECONDS, MAX_OCR_API_TIMEOUT_SECONDS)
         val normalizedConcurrency = settings.apiOcrConcurrencyLimit
             .coerceIn(MIN_OCR_API_CONCURRENCY, MAX_OCR_API_CONCURRENCY)
+        val normalizedLocalConcurrency = settings.localOcrConcurrencyLimit
+            .coerceIn(MIN_LOCAL_OCR_CONCURRENCY, MAX_LOCAL_OCR_CONCURRENCY)
         prefs.edit() {
                 putBoolean(KEY_OCR_USE_LOCAL, settings.useLocalOcr)
                 .putString(
@@ -285,6 +293,7 @@ class SettingsStore(context: Context) {
                 .putString(KEY_OCR_MODEL_NAME, settings.modelName)
                 .putInt(KEY_OCR_API_TIMEOUT_SECONDS, normalizedTimeout)
                 .putInt(KEY_OCR_API_CONCURRENCY, normalizedConcurrency)
+                .putInt(KEY_LOCAL_OCR_CONCURRENCY, normalizedLocalConcurrency)
             }
     }
 
@@ -894,6 +903,7 @@ class SettingsStore(context: Context) {
                     .put("modelName", profile.ocrSettings.modelName)
                     .put("timeoutSeconds", profile.ocrSettings.timeoutSeconds)
                     .put("apiOcrConcurrencyLimit", profile.ocrSettings.apiOcrConcurrencyLimit)
+                    .put("localOcrConcurrencyLimit", profile.ocrSettings.localOcrConcurrencyLimit)
             )
             .put(
                 "floatingTranslateSettings",
@@ -1024,7 +1034,11 @@ class SettingsStore(context: Context) {
                 apiOcrConcurrencyLimit = ocrJson.optInt(
                     "apiOcrConcurrencyLimit",
                     DEFAULT_OCR_API_CONCURRENCY
-                ).coerceIn(MIN_OCR_API_CONCURRENCY, MAX_OCR_API_CONCURRENCY)
+                ).coerceIn(MIN_OCR_API_CONCURRENCY, MAX_OCR_API_CONCURRENCY),
+                localOcrConcurrencyLimit = ocrJson.optInt(
+                    "localOcrConcurrencyLimit",
+                    DEFAULT_LOCAL_OCR_CONCURRENCY
+                ).coerceIn(MIN_LOCAL_OCR_CONCURRENCY, MAX_LOCAL_OCR_CONCURRENCY)
             ),
             floatingTranslateSettings = FloatingTranslateApiSettings(
                 apiUrl = floatingJson.optString("apiUrl"),
@@ -1203,6 +1217,7 @@ class SettingsStore(context: Context) {
             "floating_bubble_min_area_per_char_sp"
         private const val KEY_OCR_API_TIMEOUT_SECONDS = "ocr_api_timeout_seconds"
         private const val KEY_OCR_API_CONCURRENCY = "ocr_api_concurrency"
+        private const val KEY_LOCAL_OCR_CONCURRENCY = "local_ocr_concurrency"
         private const val KEY_HORIZONTAL_TEXT = "horizontal_text_layout"
         private const val KEY_NORMAL_BUBBLE_SHRINK_PERCENT = "normal_bubble_shrink_percent"
         private const val KEY_NORMAL_BUBBLE_MIN_AREA_PER_CHAR_SP = "normal_bubble_min_area_per_char_sp"
@@ -1250,6 +1265,9 @@ class SettingsStore(context: Context) {
         private const val DEFAULT_OCR_API_CONCURRENCY = 1
         private const val MIN_OCR_API_CONCURRENCY = 1
         private const val MAX_OCR_API_CONCURRENCY = 50
+        private const val DEFAULT_LOCAL_OCR_CONCURRENCY = 0  // 0 = auto
+        private const val MIN_LOCAL_OCR_CONCURRENCY = 0
+        private const val MAX_LOCAL_OCR_CONCURRENCY = 8
         private const val DEFAULT_FLOATING_OCR_CONCURRENCY = 1
         private const val MIN_FLOATING_OCR_CONCURRENCY = 1
         private const val MAX_FLOATING_OCR_CONCURRENCY = 50

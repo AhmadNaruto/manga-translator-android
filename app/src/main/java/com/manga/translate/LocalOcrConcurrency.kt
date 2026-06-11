@@ -13,4 +13,7 @@ internal object LocalOcrConcurrency {
         val byMemory = (rt.maxMemory() / MEMORY_PER_INSTANCE_BYTES).toInt()
         return min(min(byCpu, byMemory), HARD_CAP).coerceAtLeast(1)
     }
+
+    // 0 means auto; positive values override the computed result
+    fun resolve(override: Int): Int = if (override > 0) override else compute()
 }

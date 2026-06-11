@@ -190,9 +190,9 @@ internal class TranslationPipeline(
             }
             val bubbles = ArrayList<OcrBubble>(regions.size)
             val isJaLocal = useLocalOcr && language == TranslationLanguage.JA_TO_ZH
-            val jaLocalConcurrency = if (isJaLocal) LocalOcrConcurrency.compute() else 1
+            val jaLocalConcurrency = if (isJaLocal) LocalOcrConcurrency.resolve(ocrSettings.localOcrConcurrencyLimit) else 1
             if (isJaLocal && jaLocalConcurrency > 1) {
-                ocrEngineRegistry.ensureJaPool("Pipeline")
+                ocrEngineRegistry.ensureJaPool("Pipeline", ocrSettings.localOcrConcurrencyLimit)
                 val results = coroutineScope {
                     regions.map { region ->
                         async(Dispatchers.Default) {

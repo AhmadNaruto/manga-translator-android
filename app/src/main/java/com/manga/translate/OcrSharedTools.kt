@@ -74,10 +74,10 @@ class OcrEngineRegistry(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Synchronized
-    fun ensureJaPool(logTag: String): Channel<MangaOcrMobile>? {
+    fun ensureJaPool(logTag: String, concurrencyOverride: Int = 0): Channel<MangaOcrMobile>? {
         if (jaPoolClosed) return null
         jaPool?.let { return it }
-        val concurrency = LocalOcrConcurrency.compute()
+        val concurrency = LocalOcrConcurrency.resolve(concurrencyOverride)
         if (concurrency <= 1) return null
         val channel = Channel<MangaOcrMobile>(capacity = concurrency)
         repeat(concurrency) {

@@ -1455,6 +1455,9 @@ class SettingsFragment : Fragment() {
         dialogBinding.ocrApiConcurrencyInput.setText(
             String.format(Locale.getDefault(), "%d", currentSettings.apiOcrConcurrencyLimit)
         )
+        dialogBinding.localOcrConcurrencyInput.setText(
+            String.format(Locale.getDefault(), "%d", currentSettings.localOcrConcurrencyLimit)
+        )
 
         fun updateInputsEnabled(useLocalOcr: Boolean) {
             val enabled = !useLocalOcr
@@ -1468,6 +1471,8 @@ class SettingsFragment : Fragment() {
             dialogBinding.ocrApiTimeoutInput.isEnabled = enabled
             dialogBinding.ocrApiConcurrencyLayout.visibility =
                 if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.localOcrConcurrencyLayout.visibility =
+                if (useLocalOcr) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrSettingsNote.setText(
                 if (useLocalOcr) R.string.ocr_settings_note_local else R.string.ocr_settings_note_api
             )
@@ -1490,6 +1495,10 @@ class SettingsFragment : Fragment() {
                 val apiOcrConcurrencyLimit = parseIntInput(concurrencyInput)
                     ?.coerceIn(OCR_API_CONCURRENCY_MIN, OCR_API_CONCURRENCY_MAX)
                     ?: currentSettings.apiOcrConcurrencyLimit
+                val localConcurrencyInput = dialogBinding.localOcrConcurrencyInput.text?.toString()?.trim()
+                val localOcrConcurrencyLimit = parseIntInput(localConcurrencyInput)
+                    ?.coerceIn(0, 8)
+                    ?: currentSettings.localOcrConcurrencyLimit
                 val settings = OcrApiSettings(
                     useLocalOcr = dialogBinding.useLocalOcrSwitch.isChecked,
                     japaneseLocalOcrEngine = JapaneseLocalOcrEngine.MANGA_OCR_MOBILE,
@@ -1497,7 +1506,8 @@ class SettingsFragment : Fragment() {
                     apiKey = dialogBinding.ocrApiKeyInput.text?.toString()?.trim().orEmpty(),
                     modelName = dialogBinding.ocrModelNameInput.text?.toString()?.trim().orEmpty(),
                     timeoutSeconds = timeoutSeconds,
-                    apiOcrConcurrencyLimit = apiOcrConcurrencyLimit
+                    apiOcrConcurrencyLimit = apiOcrConcurrencyLimit,
+                    localOcrConcurrencyLimit = localOcrConcurrencyLimit
                 )
                 settingsStore.saveOcrApiSettings(settings)
                 AppLogger.log(
