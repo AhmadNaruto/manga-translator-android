@@ -189,7 +189,45 @@ internal class TranslationPipeline(
                 return@withContext emptyResult
             }
             val bubbles = ArrayList<OcrBubble>(regions.size)
-            if (useLocalOcr || ocrSettings.apiOcrConcurrencyLimit <= 1) {
+            val isJaLocal = useLocalOcr && language == TranslationLanguage.JA_TO_ZH
+            val jaLocalConcurrency = if (isJaLocal) LocalOcrConcurrency.compute() else 1
+            if (isJaLocal && jaLocalConcurrency > 1) {
+                ocrEngineRegistry.ensureJaPool("Pipeline")
+                val results = coroutineScope {
+                    regions.map { region ->
+                        async(Dispatchers.Default) {
+                            val clamped = PipelineBitmapDecoder.clampRect(
+                                region.rect, cropSource.width, cropSource.height
+                            ) ?: return@async null
+                            val crop = cropSource.decodeRegion(clamped) ?: return@async null
+                            val engine = ocrEngineRegistry.borrowJa("Pipeline")
+                            val text = if (engine != null) {
+                                try {
+                                    bubbleTextRecognizer.sanitizeJaCrop(engine, crop, language, "Pipeline")
+                                } finally {
+                                    ocrEngineRegistry.returnJa(engine)
+                                    crop.recycleSafely()
+                                }
+                            } else {
+                                try {
+                                    bubbleTextRecognizer.recognizeCrop(crop, language, useLocalOcr = true, logTag = "Pipeline")
+                                } finally {
+                                    crop.recycleSafely()
+                                }
+                            }
+                            if (text.isBlank()) null
+                            else OcrBubble(
+                                id = region.id,
+                                rect = region.rect,
+                                text = text,
+                                source = region.source,
+                                maskContour = region.maskContour
+                            )
+                        }
+                    }.awaitAll()
+                }
+                results.filterNotNullTo(bubbles)
+            } else if (useLocalOcr || ocrSettings.apiOcrConcurrencyLimit <= 1) {
                 for (region in regions) {
                     val text = recognizeRegionFromSource(
                         cropSource = cropSource,

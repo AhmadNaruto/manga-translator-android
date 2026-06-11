@@ -17,8 +17,10 @@ private typealias DecoderTokenCache = Array<Array<Array<Array<FloatArray>>>>
 
 class MangaOcrMobile(
     private val context: Context,
-    private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
+    private val settingsStore: SettingsStore = SettingsStore(context.applicationContext),
+    private val numThreads: Int = 2
 ) : OcrEngine {
+    @Volatile private var closed = false
     private val config = loadConfig()
     private val tokenizer = loadTokenizer()
     private val encoderInterpreter = createInterpreter(ENCODER_ASSET_NAME)
@@ -244,6 +246,13 @@ class MangaOcrMobile(
         return value as DecoderTokenCache
     }
 
+    fun close() {
+        if (closed) return
+        closed = true
+        encoderInterpreter.close()
+        decoderInterpreter.close()
+    }
+
     private fun createInterpreter(assetName: String): Interpreter {
         val model = OnnxRuntimeSupport.copyAssetToCacheIfMissing(
             cacheDir = context.cacheDir,
@@ -253,7 +262,7 @@ class MangaOcrMobile(
         return Interpreter(
             model,
             Interpreter.Options().apply {
-                setNumThreads(2)
+                setNumThreads(numThreads)
             }
         )
     }

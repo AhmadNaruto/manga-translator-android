@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
 import java.text.Normalizer
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.channels.Channel
 
 class OcrEngineRegistry(
     context: Context,
@@ -15,6 +17,10 @@ class OcrEngineRegistry(
     private var englishOcr: EnglishOcr? = null
     private var koreanOcr: KoreanOcr? = null
     private var englishLineDetector: EnglishLineDetector? = null
+
+    @Volatile private var jaPoolClosed = false
+    private var jaPool: Channel<MangaOcrMobile>? = null
+    private val jaActiveBorrows = AtomicInteger(0)
 
     @Synchronized
     fun getMangaOcrMobile(logTag: String): MangaOcrMobile? {
@@ -66,16 +72,70 @@ class OcrEngineRegistry(
         }
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Synchronized
+    fun ensureJaPool(logTag: String): Channel<MangaOcrMobile>? {
+        if (jaPoolClosed) return null
+        jaPool?.let { return it }
+        val concurrency = LocalOcrConcurrency.compute()
+        if (concurrency <= 1) return null
+        val channel = Channel<MangaOcrMobile>(capacity = concurrency)
+        repeat(concurrency) {
+            try {
+                channel.trySend(MangaOcrMobile(appContext, settingsStore = settingsStore, numThreads = 1))
+            } catch (e: Exception) {
+                AppLogger.log(logTag, "Failed to create JA pool instance", e)
+            }
+        }
+        if (channel.isEmpty) return null
+        jaPool = channel
+        return channel
+    }
+
+    suspend fun borrowJa(logTag: String): MangaOcrMobile? {
+        val pool = synchronized(this) { if (!jaPoolClosed) jaPool else null } ?: return null
+        val engine = pool.receive()
+        if (jaPoolClosed) {
+            engine.close()
+            return null
+        }
+        jaActiveBorrows.incrementAndGet()
+        return engine
+    }
+
+    fun returnJa(engine: MangaOcrMobile) {
+        jaActiveBorrows.decrementAndGet()
+        val pool = synchronized(this) { jaPool }
+        if (jaPoolClosed || pool == null) {
+            engine.close()
+        } else {
+            pool.trySend(engine)
+        }
+    }
+
     @Synchronized
     fun releaseLoadedEngines() {
         val hadLoadedEngines = mangaOcrMobile != null ||
             englishOcr != null ||
             koreanOcr != null ||
-            englishLineDetector != null
+            englishLineDetector != null ||
+            jaPool != null
         mangaOcrMobile = null
         englishOcr = null
         koreanOcr = null
         englishLineDetector = null
+        jaPoolClosed = true
+        val pool = jaPool
+        jaPool = null
+        if (pool != null) {
+            // drain idle instances; instances still borrowed will be closed on returnJa
+            var engine = pool.tryReceive().getOrNull()
+            while (engine != null) {
+                engine.close()
+                engine = pool.tryReceive().getOrNull()
+            }
+            pool.close()
+        }
         if (hadLoadedEngines) {
             AppLogger.log("OcrEngineRegistry", "Released loaded OCR engine references")
         }
@@ -205,6 +265,16 @@ class BubbleTextRecognizer(
                 }
             }
         }
+        return OcrTextSanitizer.sanitize(rawText, language, logTag)
+    }
+
+    internal suspend fun sanitizeJaCrop(
+        engine: MangaOcrMobile,
+        crop: Bitmap,
+        language: TranslationLanguage,
+        logTag: String
+    ): String {
+        val rawText = engine.recognize(crop).trim()
         return OcrTextSanitizer.sanitize(rawText, language, logTag)
     }
 }
