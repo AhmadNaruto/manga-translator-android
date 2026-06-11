@@ -116,6 +116,7 @@ class ReadingFragment : Fragment() {
     private var pendingWebtoonScrollAnchor: WebtoonScrollAnchor? = null
     private var displayedPageIndex: Int? = null
     private var displayedImagePath: String? = null
+    private var isCurrentImageLong: Boolean = false
     private var pageTransitionGeneration: Int = 0
     private val pageTransitionInterpolator = FastOutSlowInInterpolator()
     private val incomingPageParallaxDp = 28f
@@ -146,7 +147,6 @@ class ReadingFragment : Fragment() {
             restorePendingWebtoonScrollAnchor()
             syncWebtoonEditSession()
             updateWebtoonPageInfo()
-            prefetchVisibleWebtoonTiles()
         }
         webtoonAdapter.onLockedBubbleOffsetChanged = offsetChanged@{ bubbleId, offsetX, offsetY ->
             if (!isWebtoonEditSessionActive()) return@offsetChanged
@@ -209,7 +209,6 @@ class ReadingFragment : Fragment() {
                     persistWebtoonProgress()
                 }
                 warmNearbyWebtoonTranslations()
-                prefetchVisibleWebtoonTiles()
             }
         })
         readingDisplayMode = settingsStore.loadReadingDisplayMode()
@@ -377,7 +376,9 @@ class ReadingFragment : Fragment() {
             currentBitmap = null
             currentImageWidth = 0
             currentImageHeight = 0
+            isCurrentImageLong = false
             imageTransformController.setCurrentBitmap(null)
+            imageTransformController.setVerticalPanEnabled(true)
             finishPageTransitionImmediately()
             binding.readingScrollContainer.scrollTo(0, 0)
             return
@@ -438,7 +439,9 @@ class ReadingFragment : Fragment() {
                 currentBitmap = bitmap
                 currentImageWidth = decoded.sourceWidth
                 currentImageHeight = decoded.sourceHeight
+                isCurrentImageLong = isTargetLongImage
                 imageTransformController.setCurrentContent(decoded.displayWidth, decoded.displayHeight)
+                imageTransformController.setVerticalPanEnabled(!isTargetLongImage)
                 applyReadingImageLayerMode(decoded)
                 displayedImagePath = targetPath
                 displayedPageIndex = targetIndex
@@ -449,7 +452,9 @@ class ReadingFragment : Fragment() {
                 currentBitmap = null
                 currentImageWidth = 0
                 currentImageHeight = 0
+                isCurrentImageLong = false
                 imageTransformController.setCurrentBitmap(null)
+                imageTransformController.setVerticalPanEnabled(true)
                 applyReadingImageLayerMode(null)
                 displayedImagePath = null
                 displayedPageIndex = null
@@ -846,6 +851,7 @@ class ReadingFragment : Fragment() {
     private fun handleTap(x: Float) {
         if (isEditMode) return
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) return
+        if (isCurrentImageLong) return
         if (imageTransformController.isZoomed()) return
         val width = binding.readingRoot.width
         if (width <= 0) return
@@ -865,6 +871,7 @@ class ReadingFragment : Fragment() {
     private fun handleSwipe(direction: Int) {
         if (isEditMode) return
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) return
+        if (isCurrentImageLong) return
         if (imageTransformController.isZoomed()) return
         if (direction == 0) return
         persistCurrentTranslation()
@@ -889,11 +896,8 @@ class ReadingFragment : Fragment() {
     }
 
     private fun applyReadingImageLayerMode(decoded: DecodedReadingBitmap?) {
-        val isLong = decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)
-        binding.readingImage.setLayerType(
-            if (isLong) View.LAYER_TYPE_SOFTWARE else View.LAYER_TYPE_NONE,
-            null
-        )
+        // 长图通过区域瓦片解码，不再持有整张大 bitmap，无需软件层（软件层会导致撑高后 OOM）。
+        binding.readingImage.setLayerType(View.LAYER_TYPE_NONE, null)
     }
 
     private fun isLongImage(width: Int, height: Int): Boolean {
@@ -1092,6 +1096,37 @@ class ReadingFragment : Fragment() {
                     updateWebtoonChildHeight(binding.translationOverlay, imageHeight)
                     updateOverlay(currentTranslation, currentBitmap)
                 }
+            }
+        } else if (decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)) {
+            // 横向长图：撑高到 FIT_WIDTH 全高，交给外层 ReadingScrollView 竖向滚动/fling；
+            // 区域视图按滚动可视窗口解码，不持有整张大 bitmap。
+            val viewWidth = binding.readingScrollContainer.width
+                .takeIf { it > 0 }
+                ?: binding.readingRoot.width.takeIf { it > 0 }
+                ?: resources.displayMetrics.widthPixels
+            val displayWidth = decoded.displayWidth.coerceAtLeast(1)
+            val displayHeight = decoded.displayHeight.coerceAtLeast(1)
+            val fullHeight = (viewWidth.toFloat() * displayHeight / displayWidth)
+                .let { kotlin.math.round(it) }
+                .toInt()
+                .coerceAtLeast(1)
+            contentParams.height = fullHeight
+            imageParams.height = fullHeight
+            transitionImageParams.height = ViewGroup.LayoutParams.MATCH_PARENT
+            overlayParams.height = fullHeight
+            binding.readingImage.scaleType = android.widget.ImageView.ScaleType.MATRIX
+            binding.readingTransitionImage.scaleType = android.widget.ImageView.ScaleType.MATRIX
+            binding.readingImage.adjustViewBounds = false
+            binding.readingTransitionImage.adjustViewBounds = false
+            binding.readingContentContainer.layoutParams = contentParams
+            binding.readingImage.layoutParams = imageParams
+            binding.readingTransitionImage.layoutParams = transitionImageParams
+            binding.translationOverlay.layoutParams = overlayParams
+            binding.readingContentContainer.doOnLayout {
+                if (!isAdded || _binding == null || folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+                    return@doOnLayout
+                }
+                binding.readingScrollContainer.scrollTo(0, 0)
             }
         } else {
             contentParams.height = ViewGroup.LayoutParams.MATCH_PARENT
@@ -1398,21 +1433,6 @@ class ReadingFragment : Fragment() {
             if (!isAdded || _binding == null || folderReadingMode != FolderReadingMode.WEBTOON_SCROLL) return@post
             webtoonLayoutManager.scrollToPositionWithOffset(adapterPosition, anchor.topOffset)
         }
-    }
-
-    private fun prefetchVisibleWebtoonTiles() {
-        if (folderReadingMode != FolderReadingMode.WEBTOON_SCROLL) return
-        val firstVisible = webtoonLayoutManager.findFirstVisibleItemPosition()
-        val lastVisible = webtoonLayoutManager.findLastVisibleItemPosition()
-        if (firstVisible == RecyclerView.NO_POSITION || lastVisible == RecyclerView.NO_POSITION) return
-        val targetWidth = binding.readingWebtoonList.width
-            .takeIf { it > 0 }
-            ?: resources.displayMetrics.widthPixels
-        webtoonAdapter.prefetchTilesAroundAdapterRange(
-            startPosition = firstVisible,
-            endPosition = lastVisible,
-            targetWidth = targetWidth
-        )
     }
 
     private fun resolveWebtoonItemViewCacheSize(): Int {

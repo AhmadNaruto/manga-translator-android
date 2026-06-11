@@ -13,6 +13,7 @@ import android.graphics.RectF
 import android.os.Build
 import android.util.AttributeSet
 import android.util.LruCache
+import android.view.ViewTreeObserver
 import androidx.appcompat.widget.AppCompatImageView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +52,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
     private val contentMatrix = Matrix()
     private val inverseMatrix = Matrix()
     private val visibleRect = RectF()
+    private val viewVisibleRect = Rect()
     private val prefetchRect = RectF()
     private val tileDrawRect = RectF()
     private val decodeLock = Any()
@@ -71,6 +73,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
     private var decoder: BitmapRegionDecoder? = null
     private var decoderFile: File? = null
     private var generation = 0
+    private val scrollChangedListener = ViewTreeObserver.OnScrollChangedListener { invalidate() }
 
     fun setRegionSource(next: ReadingRegionImageSource?) {
         if (source == next) return
@@ -124,6 +127,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        viewTreeObserver.removeOnScrollChangedListener(scrollChangedListener)
         generation += 1
         decodeJobs.values.forEach { it.cancel() }
         decodeJobs.clear()
@@ -131,10 +135,17 @@ class ReadingRegionImageView @JvmOverloads constructor(
         closeDecoder()
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        viewTreeObserver.addOnScrollChangedListener(scrollChangedListener)
+    }
+
     private fun computeVisibleDisplayRect(activeSource: ReadingRegionImageSource): Boolean {
         contentMatrix.set(imageMatrix)
         if (!contentMatrix.invert(inverseMatrix)) return false
-        visibleRect.set(0f, 0f, width.toFloat(), height.toFloat())
+        if (!getLocalVisibleRect(viewVisibleRect)) return false
+        visibleRect.set(viewVisibleRect)
+        if (visibleRect.width() <= 0f || visibleRect.height() <= 0f) return false
         inverseMatrix.mapRect(visibleRect)
         val displayWidth = displayWidth(activeSource).toFloat()
         val displayHeight = displayHeight(activeSource).toFloat()

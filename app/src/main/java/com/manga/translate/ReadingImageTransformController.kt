@@ -25,6 +25,7 @@ class ReadingImageTransformController(
     private var imageUserScale = 1f
     private var minScale = 1f
     private var maxScale = 3f
+    private var verticalPanEnabled = true
     private var isScaling = false
     private var scaleHandled = false
     private var isPanning = false
@@ -84,6 +85,10 @@ class ReadingImageTransformController(
         currentBitmap = null
         contentWidth = width.coerceAtLeast(0)
         contentHeight = height.coerceAtLeast(0)
+    }
+
+    fun setVerticalPanEnabled(enabled: Boolean) {
+        verticalPanEnabled = enabled
     }
 
     fun reset(bitmap: Bitmap, mode: ReadingDisplayMode) {
@@ -150,7 +155,7 @@ class ReadingImageTransformController(
                     val movedY = event.y - startTouchY
                     if (!isPanning) {
                         val canPanHorizontally = zoomed && overflowAxes.horizontal
-                        val canPanVertically = overflowAxes.vertical
+                        val canPanVertically = verticalPanEnabled && overflowAxes.vertical
                         val horizontalIntent =
                             abs(movedX) > panTouchSlop && abs(movedX) >= abs(movedY)
                         val verticalIntent =

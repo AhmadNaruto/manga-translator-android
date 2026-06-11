@@ -2,11 +2,7 @@ package com.manga.translate
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.BitmapRegionDecoder
-import android.graphics.Rect
 import android.graphics.RectF
-import android.os.Build
-import android.util.LruCache
 import android.util.Size
 import android.view.MotionEvent
 import android.view.LayoutInflater
@@ -24,8 +20,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 class WebtoonReadingAdapter(
@@ -44,28 +38,15 @@ class WebtoonReadingAdapter(
         val bubbleRenderSettings: NormalBubbleRenderSettings
     )
 
-    data class WebtoonTile(
-        val sourceTop: Int,
-        val sourceBottom: Int
-    ) {
-        val sourceHeight: Int
-            get() = sourceBottom - sourceTop
-    }
-
     data class WebtoonDisplayItem(
         val imageFile: File,
-        val imageIndex: Int,
-        val tile: WebtoonTile?
+        val imageIndex: Int
     ) {
         val path: String
             get() = imageFile.absolutePath
 
         val stableKey: String
-            get() = if (tile == null) path else "$path#${tile.sourceTop}-${tile.sourceBottom}"
-
-        fun sourceHeightForDisplay(sourceSize: Size?): Int {
-            return tile?.sourceHeight ?: sourceSize?.height ?: 0
-        }
+            get() = path
     }
 
     private companion object {
@@ -73,20 +54,7 @@ class WebtoonReadingAdapter(
         const val PAYLOAD_TRANSLATION_ONLY = "translation_only"
         const val PAYLOAD_PLACEHOLDER_ONLY = "placeholder_only"
         const val DEFAULT_PLACEHOLDER_HEIGHT_RATIO = 1.4f
-        const val DISPLAY_TILE_HEIGHT_WIDTH_RATIO = 2.25f
-        const val DISPLAY_TILE_MIN_HEIGHT_PX = 1600
-        const val DISPLAY_TILE_MAX_HEIGHT_PX = 2800
-        const val DETAIL_MULTIPLIER = 2
         const val SOURCE_SIZE_BATCH_SIZE = 12
-        const val DEFAULT_TILE_PREFETCH_RADIUS = 4
-
-        fun tileCacheMaxKb(): Int {
-            val runtimeMaxKb = (Runtime.getRuntime().maxMemory() / 1024L).coerceAtLeast(1L)
-            return min(
-                (runtimeMaxKb / 8L).toInt(),
-                96 * 1024
-            ).coerceAtLeast(24 * 1024)
-        }
     }
 
     private var items: List<File> = emptyList()
@@ -104,22 +72,13 @@ class WebtoonReadingAdapter(
     private val sourceSizeCache = mutableMapOf<String, Size>()
     private val boundHolders = mutableMapOf<String, MutableSet<WebtoonPageViewHolder>>()
     private val translationCache = mutableMapOf<String, TranslationResult?>()
-    private val tileTranslationCache = mutableMapOf<String, TranslationResult>()
     private val translationLoadLock = Any()
     private val translationLoadJobs = mutableMapOf<String, Deferred<TranslationResult?>>()
-    private val tileBitmapCache = object : LruCache<String, DecodedReadingBitmap>(tileCacheMaxKb()) {
-        override fun sizeOf(key: String, value: DecodedReadingBitmap): Int {
-            return ((value.bitmap?.byteCount ?: 0) / 1024).coerceAtLeast(1)
-        }
-    }
-    private val tileDecodeLock = Any()
-    private val tileDecodeJobs = mutableMapOf<String, Deferred<DecodedReadingBitmap?>>()
     private var editModeEnabled = false
     private var lockedPagePath: String? = null
     private var lockedPageTranslation: TranslationResult? = null
     private var lockedPageOffsets: Map<Int, Pair<Float, Float>> = emptyMap()
     private var sourceSizePrefetchJob: Job? = null
-    private var tilePrefetchJob: Job? = null
 
     var onLockedBubbleOffsetChanged: ((Int, Float, Float) -> Unit)? = null
     var onLockedBubbleRemove: ((Int) -> Unit)? = null
@@ -176,7 +135,6 @@ class WebtoonReadingAdapter(
         displayItems = newDisplayItems
         pruneTranslationCache(images)
         pruneSourceSizeCache(images)
-        pruneTileBitmapCache(images)
         this.verticalLayoutEnabled = verticalLayoutEnabled
         this.bubbleRenderSettings = bubbleRenderSettings
         diffResult.dispatchUpdatesTo(this)
@@ -238,43 +196,12 @@ class WebtoonReadingAdapter(
         return (start..end).mapTo(linkedSetOf()) { displayItems[it].path }
     }
 
-    fun prefetchTilesAroundAdapterRange(
-        startPosition: Int,
-        endPosition: Int,
-        targetWidth: Int,
-        radius: Int = DEFAULT_TILE_PREFETCH_RADIUS
-    ) {
-        if (displayItems.isEmpty() || startPosition == RecyclerView.NO_POSITION || endPosition == RecyclerView.NO_POSITION) {
-            return
-        }
-        val start = (min(startPosition, endPosition) - radius).coerceAtLeast(0)
-        val end = (max(startPosition, endPosition) + radius).coerceAtMost(displayItems.lastIndex)
-        if (start > end) return
-        val targets = (start..end)
-            .mapNotNull { displayItems.getOrNull(it) }
-            .filter { it.tile != null }
-        if (targets.isEmpty()) return
-        tilePrefetchJob?.cancel()
-        tilePrefetchJob = scope.launch(Dispatchers.IO) {
-            for (item in targets) {
-                loadTileFromCache(item, targetWidth)
-            }
-        }
-    }
-
     fun clearRuntimeCaches() {
         sourceSizePrefetchJob?.cancel()
-        tilePrefetchJob?.cancel()
-        synchronized(tileDecodeLock) {
-            tileDecodeJobs.values.forEach { it.cancel() }
-            tileDecodeJobs.clear()
-        }
         synchronized(translationLoadLock) {
             translationLoadJobs.values.forEach { it.cancel() }
             translationLoadJobs.clear()
         }
-        tileBitmapCache.evictAll()
-        tileTranslationCache.clear()
         boundHolders.clear()
     }
 
@@ -326,7 +253,6 @@ class WebtoonReadingAdapter(
 
     fun notifyTranslationChanged(imagePath: String) {
         translationCache.remove(imagePath)
-        clearTileTranslationCacheForPath(imagePath)
         synchronized(translationLoadLock) {
             translationLoadJobs.remove(imagePath)?.cancel()
         }
@@ -340,11 +266,6 @@ class WebtoonReadingAdapter(
         val activePaths = images.mapTo(hashSetOf()) { it.absolutePath }
         if (translationCache.isNotEmpty()) {
             translationCache.keys.retainAll(activePaths)
-        }
-        if (tileTranslationCache.isNotEmpty()) {
-            tileTranslationCache.keys.retainAll { key ->
-                activePaths.any { path -> key.startsWith("$path#") }
-            }
         }
         synchronized(translationLoadLock) {
             val iterator = translationLoadJobs.entries.iterator()
@@ -362,23 +283,6 @@ class WebtoonReadingAdapter(
         if (sourceSizeCache.isEmpty()) return
         val activePaths = images.mapTo(hashSetOf()) { it.absolutePath }
         sourceSizeCache.keys.retainAll(activePaths)
-    }
-
-    private fun pruneTileBitmapCache(images: List<File>) {
-        val activePaths = images.mapTo(hashSetOf()) { it.absolutePath }
-        for (key in tileBitmapCache.snapshot().keys) {
-            val isActive = activePaths.any { path -> key.startsWith("$path#") }
-            if (!isActive) {
-                tileBitmapCache.remove(key)
-            }
-        }
-    }
-
-    private fun clearTileTranslationCacheForPath(path: String) {
-        if (tileTranslationCache.isEmpty()) return
-        tileTranslationCache.keys.removeAll { key ->
-            key == path || key.startsWith("$path#")
-        }
     }
 
     private suspend fun loadTranslationShared(imageFile: File): TranslationResult? {
@@ -466,44 +370,11 @@ class WebtoonReadingAdapter(
     }
 
     private fun buildDisplayItems(images: List<File>): List<WebtoonDisplayItem> {
-        val result = ArrayList<WebtoonDisplayItem>()
+        val result = ArrayList<WebtoonDisplayItem>(images.size)
         images.forEachIndexed { index, imageFile ->
-            val size = sourceSizeCache[imageFile.absolutePath]
-            val tiles = if (size != null && shouldUseDisplayTiles(imageFile, size)) {
-                planDisplayTiles(size.width, size.height)
-            } else {
-                emptyList()
-            }
-            if (tiles.isEmpty()) {
-                result += WebtoonDisplayItem(imageFile, index, null)
-            } else {
-                tiles.forEach { tile ->
-                    result += WebtoonDisplayItem(imageFile, index, tile)
-                }
-            }
+            result += WebtoonDisplayItem(imageFile, index)
         }
         return result
-    }
-
-    private fun shouldUseDisplayTiles(imageFile: File, size: Size): Boolean {
-        if (ImageFileSupport.isAvifFile(imageFile.name)) return false
-        return shouldUseLongImageTiling(size.width, size.height)
-    }
-
-    private fun planDisplayTiles(sourceWidth: Int, sourceHeight: Int): List<WebtoonTile> {
-        if (sourceWidth <= 0 || sourceHeight <= 0) return emptyList()
-        val tileHeight = (sourceWidth * DISPLAY_TILE_HEIGHT_WIDTH_RATIO).roundToInt()
-            .coerceIn(DISPLAY_TILE_MIN_HEIGHT_PX, DISPLAY_TILE_MAX_HEIGHT_PX)
-            .coerceAtMost(sourceHeight)
-        if (tileHeight >= sourceHeight) return emptyList()
-        val tiles = ArrayList<WebtoonTile>()
-        var top = 0
-        while (top < sourceHeight) {
-            val bottom = minOf(top + tileHeight, sourceHeight)
-            tiles += WebtoonTile(top, bottom)
-            top = bottom
-        }
-        return tiles
     }
 
     inner class WebtoonPageViewHolder(
@@ -598,11 +469,9 @@ class WebtoonReadingAdapter(
 
         fun buildSnapshot(): BoundPageSnapshot? {
             val imageFile = boundFile ?: return null
-            val item = boundItem
-            val path = imageFile.absolutePath
             return BoundPageSnapshot(
                 imageFile = imageFile,
-                translation = if (item?.tile == null) currentTranslation else translationCache[path],
+                translation = currentTranslation,
                 sourceWidth = currentImageWidth,
                 sourceHeight = currentImageHeight
             )
@@ -674,11 +543,7 @@ class WebtoonReadingAdapter(
                 val targetWidth = resolveTargetWidth()
                 val targetHeight = resolveTargetHeight()
                 val decodedDeferred = async(Dispatchers.IO) {
-                    if (item.tile == null) {
-                        ReadingBitmapDecoder.decode(imageFile, targetWidth, targetHeight)
-                    } else {
-                        loadTileFromCache(item, targetWidth)
-                    }
+                    ReadingBitmapDecoder.decode(imageFile, targetWidth, targetHeight)
                 }
                 val earlyTranslationJob = launch {
                     val translation = loadTranslationShared(imageFile)
@@ -704,7 +569,7 @@ class WebtoonReadingAdapter(
                 currentImageWidth = decoded.sourceWidth
                 currentImageHeight = decoded.sourceHeight
                 currentTranslation = normalizeTranslation(currentTranslation)
-                updatePageHeightForImage(decoded.sourceWidth, decoded.sourceHeight, item.tile)
+                updatePageHeightForImage(decoded.sourceWidth, decoded.sourceHeight)
                 binding.readingPageImage.setRegionSource(decoded.regionSource)
                 binding.readingPageImage.setImageDrawable(decoded.drawable)
                 binding.root.post {
@@ -769,7 +634,7 @@ class WebtoonReadingAdapter(
             val metrics = binding.root.resources.displayMetrics
             val width = binding.root.width.takeIf { it > 0 } ?: metrics.widthPixels
             val size = sourceSizeCache[item.path]
-            val displaySourceHeight = item.sourceHeightForDisplay(size)
+            val displaySourceHeight = size?.height ?: 0
             val estimated = size
                 ?.takeIf { it.width > 0 && it.height > 0 }
                 ?.takeIf { displaySourceHeight > 0 }
@@ -793,14 +658,13 @@ class WebtoonReadingAdapter(
             if (size.width <= 0 || size.height <= 0) return
             currentImageWidth = size.width
             currentImageHeight = size.height
-            updatePageHeightForImage(size.width, size.height, item.tile)
+            updatePageHeightForImage(size.width, size.height)
         }
 
-        private fun updatePageHeightForImage(sourceWidth: Int, sourceHeight: Int, tile: WebtoonTile?) {
+        private fun updatePageHeightForImage(sourceWidth: Int, sourceHeight: Int) {
             if (sourceWidth <= 0 || sourceHeight <= 0) return
             val targetWidth = resolveTargetWidth()
-            val heightForRatio = tile?.sourceHeight ?: sourceHeight
-            val targetHeight = (targetWidth.toFloat() * heightForRatio / sourceWidth)
+            val targetHeight = (targetWidth.toFloat() * sourceHeight / sourceWidth)
                 .roundToInt()
                 .coerceAtLeast(1)
             updateViewHeight(binding.root, targetHeight)
@@ -893,35 +757,12 @@ class WebtoonReadingAdapter(
         }
 
         private fun normalizeTranslation(translation: TranslationResult?): TranslationResult? {
-            val item = boundItem
             if (translation == null) return null
-            if (item?.tile == null) {
-                return if (translation.width == currentImageWidth && translation.height == currentImageHeight) {
-                    translation
-                } else {
-                    translation.copy(width = currentImageWidth, height = currentImageHeight)
-                }
-            }
-            tileTranslationCache[item.stableKey]?.let { return it }
-            val tile = item.tile
-            val sourceWidth = currentImageWidth
-            val sourceHeight = currentImageHeight
-            if (sourceWidth <= 0 || sourceHeight <= 0 || tile.sourceHeight <= 0) {
-                return translation.copy(width = currentImageWidth, height = currentImageHeight)
-            }
-            val pageTranslation = if (translation.width == sourceWidth && translation.height == sourceHeight) {
+            return if (translation.width == currentImageWidth && translation.height == currentImageHeight) {
                 translation
             } else {
-                translation.copy(width = sourceWidth, height = sourceHeight)
+                translation.copy(width = currentImageWidth, height = currentImageHeight)
             }
-            val localBubbles = pageTranslation.bubbles.mapNotNull { bubble ->
-                localizeBubbleForTile(bubble, tile, sourceWidth, sourceHeight)
-            }
-            return pageTranslation.copy(
-                width = sourceWidth,
-                height = tile.sourceHeight,
-                bubbles = localBubbles
-            ).also { tileTranslationCache[item.stableKey] = it }
         }
 
         private fun isLockedEditPage(): Boolean {
@@ -957,145 +798,6 @@ class WebtoonReadingAdapter(
             holders.remove(this)
             if (holders.isEmpty()) {
                 boundHolders.remove(path)
-            }
-        }
-    }
-
-    private suspend fun loadTileFromCache(item: WebtoonDisplayItem, targetWidth: Int): DecodedReadingBitmap? {
-        val tile = item.tile ?: return null
-        val size = sourceSizeCache[item.path] ?: readImageSize(item.imageFile) ?: return null
-        val sourceWidth = size.width
-        val sourceHeight = size.height
-        if (sourceWidth <= 0 || sourceHeight <= 0 || tile.sourceHeight <= 0) return null
-        val sampleSize = calculateTileSampleSize(
-            sourceWidth = sourceWidth,
-            tileHeight = tile.sourceHeight,
-            targetWidth = targetWidth.coerceAtLeast(1) * DETAIL_MULTIPLIER
-        )
-        val cacheKey = "${item.stableKey}#s$sampleSize"
-        tileBitmapCache.get(cacheKey)?.let { return it }
-        val deferred = synchronized(tileDecodeLock) {
-            tileBitmapCache.get(cacheKey)?.let { return it }
-            tileDecodeJobs[cacheKey] ?: scope.async(Dispatchers.IO) {
-                decodeTile(item, size, sampleSize)
-            }.also { tileDecodeJobs[cacheKey] = it }
-        }
-        return try {
-            deferred.await()?.also { decoded ->
-                tileBitmapCache.put(cacheKey, decoded)
-            }
-        } finally {
-            synchronized(tileDecodeLock) {
-                if (tileDecodeJobs[cacheKey] === deferred) {
-                    tileDecodeJobs.remove(cacheKey)
-                }
-            }
-        }
-    }
-
-    private suspend fun decodeTile(
-        item: WebtoonDisplayItem,
-        size: Size,
-        sampleSize: Int
-    ): DecodedReadingBitmap? {
-        val tile = item.tile ?: return null
-        val sourceWidth = size.width
-        val bitmap = ImageProcessingGuards.withDecodePermit(
-            width = sourceWidth,
-            height = tile.sourceHeight,
-            tag = "WebtoonTileDecoder"
-        ) {
-            val decoder = runCatching { createBitmapRegionDecoder(item.imageFile) }.getOrNull()
-                ?: return@withDecodePermit null
-            try {
-                val rect = Rect(0, tile.sourceTop, sourceWidth, tile.sourceBottom)
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = Bitmap.Config.RGB_565
-                }
-                runCatching { decoder.decodeRegion(rect, options) }.getOrNull()
-            } finally {
-                decoder.recycle()
-            }
-        } ?: return null
-        bitmap.density = Bitmap.DENSITY_NONE
-        return DecodedReadingBitmap(
-            drawable = ReadingTiledBitmapDrawable.single(bitmap),
-            bitmap = bitmap,
-            sourceWidth = sourceWidth,
-            sourceHeight = size.height,
-            displayWidth = bitmap.width,
-            displayHeight = bitmap.height,
-            isTiled = false
-        )
-    }
-
-    private fun calculateTileSampleSize(sourceWidth: Int, tileHeight: Int, targetWidth: Int): Int {
-        var sample = 1
-        while (
-            sourceWidth / (sample * 2) >= targetWidth &&
-            tileHeight / (sample * 2) >= DISPLAY_TILE_MIN_HEIGHT_PX
-        ) {
-            sample *= 2
-        }
-        return sample.coerceAtLeast(1)
-    }
-
-    private fun createBitmapRegionDecoder(imageFile: File): BitmapRegionDecoder {
-        val path = imageFile.absolutePath
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            BitmapRegionDecoder.newInstance(path)
-        } else {
-            @Suppress("DEPRECATION")
-            BitmapRegionDecoder.newInstance(path, false)
-        }
-    }
-
-    private fun localizeBubbleForTile(
-        bubble: BubbleTranslation,
-        tile: WebtoonTile,
-        sourceWidth: Int,
-        sourceHeight: Int
-    ): BubbleTranslation? {
-        if (bubble.rect.bottom <= tile.sourceTop || bubble.rect.top >= tile.sourceBottom) return null
-        if (!isPrimaryTileForBubble(bubble.rect, tile, sourceHeight)) return null
-        val localRect = RectF(
-            bubble.rect.left,
-            (bubble.rect.top - tile.sourceTop).coerceAtLeast(0f),
-            bubble.rect.right,
-            (bubble.rect.bottom - tile.sourceTop).coerceAtMost(tile.sourceHeight.toFloat())
-        )
-        val localContour = localizeMaskContourForTile(
-            bubble.maskContour,
-            tile,
-            sourceWidth,
-            sourceHeight
-        )
-        return bubble.copy(rect = localRect, maskContour = localContour)
-    }
-
-    private fun isPrimaryTileForBubble(rect: RectF, tile: WebtoonTile, sourceHeight: Int): Boolean {
-        if (sourceHeight <= 0 || tile.sourceHeight <= 0) return true
-        val centerY = rect.centerY().coerceIn(0f, sourceHeight.toFloat())
-        val isLastTile = tile.sourceBottom >= sourceHeight
-        return centerY >= tile.sourceTop && (centerY < tile.sourceBottom || isLastTile)
-    }
-
-    private fun localizeMaskContourForTile(
-        contour: FloatArray?,
-        tile: WebtoonTile,
-        sourceWidth: Int,
-        sourceHeight: Int
-    ): FloatArray? {
-        if (contour == null || contour.size < 2 || sourceWidth <= 0 || sourceHeight <= 0 || tile.sourceHeight <= 0) {
-            return contour?.copyOf()
-        }
-        return FloatArray(contour.size) { index ->
-            if (index % 2 == 0) {
-                contour[index]
-            } else {
-                (((contour[index] * sourceHeight) - tile.sourceTop) / tile.sourceHeight.toFloat())
-                    .coerceIn(0f, 1f)
             }
         }
     }
