@@ -62,8 +62,8 @@ class MangaOcrMobile(
 
         val tokenIds = ArrayList<Int>(config.maxLength)
         var logits = outputLogits("output_0", initOutputs)
-        var selfKeys = initializeSelfCache(initOutputs.getValue("output_1"))
-        var selfValues = initializeSelfCache(initOutputs.getValue("output_2"))
+        val selfKeys = initializeSelfCache(initOutputs.getValue("output_1"))
+        val selfValues = initializeSelfCache(initOutputs.getValue("output_2"))
         val crossKeys = initOutputs.getValue("output_3")
         val crossValues = initOutputs.getValue("output_4")
 
@@ -94,12 +94,12 @@ class MangaOcrMobile(
             )
             decoderInterpreter.runSignature(stepInputs, stepOutputs, DECODER_STEP_SIGNATURE)
             logits = outputLogits("output_0", stepOutputs)
-            selfKeys = appendSelfCache(
+            appendSelfCache(
                 currentCache = selfKeys,
                 stepCache = stepOutputs.getValue("output_1"),
                 position = tokenIds.size
             )
-            selfValues = appendSelfCache(
+            appendSelfCache(
                 currentCache = selfValues,
                 stepCache = stepOutputs.getValue("output_2"),
                 position = tokenIds.size
@@ -182,27 +182,17 @@ class MangaOcrMobile(
         currentCache: DecoderTokenCache,
         stepCache: Any,
         position: Int
-    ): DecoderTokenCache {
+    ) {
         val step = requireDecoderTokenCache(stepCache, "decoder step cache")
-        val updated = Array(config.numDecoderLayers) { layer ->
-            Array(1) {
-                Array(config.numHeads) { head ->
-                    Array(config.maxLength) { index ->
-                        FloatArray(config.headDim).also { values ->
-                            if (index < position) {
-                                val source = if (index == position - 1) {
-                                    step[layer][0][head][0]
-                                } else {
-                                    currentCache[layer][0][head][index]
-                                }
-                                System.arraycopy(source, 0, values, 0, config.headDim)
-                            }
-                        }
-                    }
-                }
+        for (layer in 0 until config.numDecoderLayers) {
+            for (head in 0 until config.numHeads) {
+                System.arraycopy(
+                    step[layer][0][head][0], 0,
+                    currentCache[layer][0][head][position - 1], 0,
+                    config.headDim
+                )
             }
         }
-        return updated
     }
 
     private fun allocateSelfCache(): DecoderTokenCache {
@@ -263,6 +253,7 @@ class MangaOcrMobile(
             model,
             Interpreter.Options().apply {
                 setNumThreads(numThreads)
+                setUseXNNPACK(true)
             }
         )
     }

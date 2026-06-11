@@ -77,6 +77,11 @@ object OnnxRuntimeSupport {
         val options = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(threadProfile.intraOpThreads)
             setInterOpNumThreads(threadProfile.interOpThreads)
+            try {
+                addXnnpack(emptyMap())
+            } catch (e: OrtException) {
+                AppLogger.log("OnnxRuntime", "XNNPACK unavailable, using plain CPU", e)
+            }
         }
         return options.use {
             env.createSession(modelFile.absolutePath, it)
