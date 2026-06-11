@@ -129,7 +129,7 @@ class LlmClient(
                 val code = response.code
                 val body = response.body?.string().orEmpty()
                 if (code !in 200..299) {
-                    AppLogger.log("LlmClient", "OCR HTTP $code on $endpoint: ${summarizeBody(body)}")
+                    AppLogger.log("LlmClient", "OCR HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
                     lastErrorCode = "HTTP $code"
                     lastErrorBody = body
                     null
@@ -139,7 +139,7 @@ class LlmClient(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                AppLogger.log("LlmClient", "OCR request failed on $endpoint (attempt $attempt)", e)
+                AppLogger.log("LlmClient", "OCR request failed on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
                 lastErrorCode = "NETWORK_ERROR"
                 null
             }
@@ -148,7 +148,7 @@ class LlmClient(
                 if (lastErrorCode != null) {
                     AppLogger.log(
                         "LlmClient",
-                        "OCR request failed on $endpoint: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
+                        "OCR request failed on ${redactEndpoint(endpoint)}: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
                     )
                 }
                 return@withContext null
@@ -228,7 +228,7 @@ class LlmClient(
                 if (code !in 200..299) {
                     AppLogger.log(
                         "LlmClient",
-                        "HTTP $code on $endpoint: ${summarizeBody(body)}"
+                        "HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}"
                     )
                     lastErrorCode = "HTTP $code"
                     lastErrorBody = body
@@ -238,7 +238,7 @@ class LlmClient(
                     if (content == null) {
                         AppLogger.log(
                             "LlmClient",
-                            "Empty or invalid response content from $endpoint"
+                            "Empty or invalid response content from ${redactEndpoint(endpoint)}"
                         )
                         lastResponseException = LlmResponseException(
                             errorCode = "INVALID_RESPONSE",
@@ -252,13 +252,13 @@ class LlmClient(
                     content
                 }
             } catch (e: SocketTimeoutException) {
-                AppLogger.log("LlmClient", "Request timeout on $endpoint (attempt $attempt)", e)
+                AppLogger.log("LlmClient", "Request timeout on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
                 lastErrorCode = "TIMEOUT"
                 null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                AppLogger.log("LlmClient", "Request failed on $endpoint (attempt $attempt)", e)
+                AppLogger.log("LlmClient", "Request failed on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
                 lastErrorCode = "NETWORK_ERROR"
                 null
             }
@@ -269,14 +269,14 @@ class LlmClient(
                 lastResponseException?.let {
                     AppLogger.log(
                         "LlmClient",
-                        "Response invalid on $endpoint: ${summarizeBody(it.responseContent)}"
+                        "Response invalid on ${redactEndpoint(endpoint)}: ${summarizeBody(it.responseContent)}"
                     )
                     throw it
                 }
                 if (lastErrorCode != null) {
                     AppLogger.log(
                         "LlmClient",
-                        "Request failed on $endpoint: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
+                        "Request failed on ${redactEndpoint(endpoint)}: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
                     )
                     throw LlmRequestException(lastErrorCode, lastErrorBody)
                 }
@@ -326,7 +326,7 @@ class LlmClient(
                 val code = response.code
                 val body = response.body?.string().orEmpty()
                 if (code !in 200..299) {
-                    AppLogger.log("LlmClient", "HTTP $code on $endpoint: ${summarizeBody(body)}")
+                    AppLogger.log("LlmClient", "HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
                     lastErrorCode = "HTTP $code"
                     lastErrorBody = body
                     null
@@ -335,7 +335,7 @@ class LlmClient(
                     if (content == null) {
                         AppLogger.log(
                             "LlmClient",
-                            "Empty or invalid image response content from $endpoint"
+                            "Empty or invalid image response content from ${redactEndpoint(endpoint)}"
                         )
                         lastResponseException = LlmResponseException(
                             errorCode = "INVALID_RESPONSE",
@@ -349,13 +349,13 @@ class LlmClient(
                     content
                 }
             } catch (e: SocketTimeoutException) {
-                AppLogger.log("LlmClient", "Request timeout on $endpoint (attempt $attempt)", e)
+                AppLogger.log("LlmClient", "Request timeout on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
                 lastErrorCode = "TIMEOUT"
                 null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                AppLogger.log("LlmClient", "Request failed on $endpoint (attempt $attempt)", e)
+                AppLogger.log("LlmClient", "Request failed on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
                 lastErrorCode = "NETWORK_ERROR"
                 null
             }
@@ -366,14 +366,14 @@ class LlmClient(
                 lastResponseException?.let {
                     AppLogger.log(
                         "LlmClient",
-                        "Image response invalid on $endpoint: ${summarizeBody(it.responseContent)}"
+                        "Image response invalid on ${redactEndpoint(endpoint)}: ${summarizeBody(it.responseContent)}"
                     )
                     throw it
                 }
                 if (lastErrorCode != null) {
                     AppLogger.log(
                         "LlmClient",
-                        "Request failed on $endpoint: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
+                        "Request failed on ${redactEndpoint(endpoint)}: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
                     )
                     throw LlmRequestException(lastErrorCode, lastErrorBody)
                 }
@@ -447,6 +447,9 @@ class LlmClient(
         val separator = if (endpoint.contains("?")) "&" else "?"
         return endpoint + separator + "key=" + URLEncoder.encode(apiKey, Charsets.UTF_8.name())
     }
+
+    private fun redactEndpoint(endpoint: String): String =
+        endpoint.replace(Regex("(\\?|&)key=[^&]*"), "$1key=***")
 
     private fun buildPayload(
         settings: ApiSettings,
@@ -1108,7 +1111,7 @@ class LlmClient(
                 if (code !in 200..299) {
                     AppLogger.log(
                         "LlmClient",
-                        "Model list HTTP $code on $endpoint: ${summarizeBody(body)}"
+                        "Model list HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}"
                     )
                     lastErrorCode = "HTTP $code"
                     lastErrorBody = body
@@ -1126,7 +1129,7 @@ class LlmClient(
             } catch (e: Exception) {
                 AppLogger.log(
                     "LlmClient",
-                    "Model list request failed on $endpoint (attempt $attempt)",
+                    "Model list request failed on ${redactEndpoint(endpoint)} (attempt $attempt)",
                     e
                 )
                 lastErrorCode = "NETWORK_ERROR"
@@ -1139,7 +1142,7 @@ class LlmClient(
                 if (lastErrorCode != null) {
                     AppLogger.log(
                         "LlmClient",
-                        "Model list failed on $endpoint: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
+                        "Model list failed on ${redactEndpoint(endpoint)}: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
                     )
                     throw LlmRequestException(lastErrorCode, lastErrorBody)
                 }

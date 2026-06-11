@@ -26,7 +26,7 @@
 
     <application
         android:name=".MangaTranslateApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:label="MT 阅读器"
         android:icon="@mipmap/ic_launcher"
         android:localeConfig="@xml/locales_config"
