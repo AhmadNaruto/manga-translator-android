@@ -59,19 +59,24 @@ class TranslationKeepAliveService : Service() {
                 val descriptor = loadDescriptor(intent)
                 if (descriptor == null) {
                     stopIdleTranslationTask(clearPersistedTask = false)
-                } else {
-                    startTranslationTask(descriptor)
+                    return START_NOT_STICKY
                 }
+                startTranslationTask(descriptor)
             }
             ACTION_RESUME_TRANSLATION_TASK -> {
                 if (translationJob?.isActive != true) {
                     val descriptor = taskPersistence.load()
                     if (descriptor == null) {
                         stopIdleTranslationTask(clearPersistedTask = true)
-                    } else {
-                        startTranslationTask(descriptor)
+                        return START_NOT_STICKY
                     }
+                    startTranslationTask(descriptor)
                 }
+            }
+            else -> {
+                // null intent (STICKY restart with no pending task) or unknown action
+                stopIdleTranslationTask(clearPersistedTask = false)
+                return START_NOT_STICKY
             }
         }
         return START_STICKY

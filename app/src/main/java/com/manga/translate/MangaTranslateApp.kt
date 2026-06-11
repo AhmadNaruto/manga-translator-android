@@ -46,8 +46,15 @@ class MangaTranslateApp : Application() {
             crashStateStore.markCrashed()
             previousHandler?.uncaughtException(thread, throwable)
         }
-        if (TranslationTaskPersistence(this).load() != null) {
-            TranslationKeepAliveService.resumePendingTask(this)
+        val taskPersistence = TranslationTaskPersistence(this)
+        val pendingTask = taskPersistence.load()
+        if (pendingTask != null) {
+            val ageMs = System.currentTimeMillis() - pendingTask.startedAtEpochMs
+            if (ageMs < 24 * 60 * 60 * 1000L) {
+                TranslationKeepAliveService.resumePendingTask(this)
+            } else {
+                taskPersistence.clear()
+            }
         }
     }
 }
