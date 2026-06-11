@@ -10,23 +10,11 @@ class OcrEngineRegistry(
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
 ) {
     private val appContext = context.applicationContext
-    private var mangaOcr: MangaOcr? = null
     private var mangaOcrMobile: MangaOcrMobile? = null
     private var mangaOcrMobileInitFailed = false
     private var englishOcr: EnglishOcr? = null
     private var koreanOcr: KoreanOcr? = null
     private var englishLineDetector: EnglishLineDetector? = null
-
-    @Synchronized
-    fun getMangaOcr(logTag: String): MangaOcr? {
-        if (mangaOcr != null) return mangaOcr
-        return try {
-            MangaOcr(appContext, settingsStore = settingsStore).also { mangaOcr = it }
-        } catch (e: Exception) {
-            AppLogger.log(logTag, "Failed to init OCR", e)
-            null
-        }
-    }
 
     @Synchronized
     fun getMangaOcrMobile(logTag: String): MangaOcrMobile? {
@@ -80,12 +68,10 @@ class OcrEngineRegistry(
 
     @Synchronized
     fun releaseLoadedEngines() {
-        val hadLoadedEngines = mangaOcr != null ||
-            mangaOcrMobile != null ||
+        val hadLoadedEngines = mangaOcrMobile != null ||
             englishOcr != null ||
             koreanOcr != null ||
             englishLineDetector != null
-        mangaOcr = null
         mangaOcrMobile = null
         englishOcr = null
         koreanOcr = null
