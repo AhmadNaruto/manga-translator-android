@@ -193,61 +193,6 @@ object ReadingBitmapDecoder {
         return sourceHeight >= TILE_DECODE_MIN_SOURCE_HEIGHT || decodedHeight >= TILE_DECODE_MIN_SOURCE_HEIGHT / 2
     }
 
-    private suspend fun decodeTiled(
-        imageFile: java.io.File,
-        sourceWidth: Int,
-        sourceHeight: Int,
-        sampleSize: Int
-    ): DecodedReadingBitmap? {
-        val outputWidth = ceilDiv(sourceWidth, sampleSize)
-        val outputHeight = ceilDiv(sourceHeight, sampleSize)
-        return ImageProcessingGuards.withDecodePermit(
-            width = outputWidth,
-            height = outputHeight,
-            tag = "ReadingDecoderTiled"
-        ) {
-            val regionDecoder = runCatching {
-                createBitmapRegionDecoder(imageFile)
-            }.getOrNull() ?: return@withDecodePermit null
-            val tiles = ArrayList<ReadingBitmapTile>()
-            try {
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = Bitmap.Config.RGB_565
-                }
-                var outputTop = 0
-                for (sourceTile in planSourceTiles(sourceWidth, sourceHeight, sampleSize)) {
-                    val tile = runCatching {
-                        regionDecoder.decodeRegion(sourceTile.toRect(), options)
-                    }.getOrNull()
-                    if (tile == null) {
-                        tiles.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
-                        return@withDecodePermit null
-                    }
-                    tile.density = Bitmap.DENSITY_NONE
-                    tiles += ReadingBitmapTile(bitmap = tile, top = outputTop)
-                    outputTop += tile.height
-                }
-                if (tiles.isEmpty()) return@withDecodePermit null
-                DecodedReadingBitmap(
-                    drawable = ReadingTiledBitmapDrawable(
-                        tiles = tiles,
-                        imageWidth = tiles.maxOf { it.bitmap.width },
-                        imageHeight = outputTop
-                    ),
-                    bitmap = null,
-                    sourceWidth = sourceWidth,
-                    sourceHeight = sourceHeight,
-                    displayWidth = tiles.maxOf { it.bitmap.width },
-                    displayHeight = outputTop,
-                    isTiled = true
-                )
-            } finally {
-                regionDecoder.recycle()
-            }
-        }
-    }
-
     private fun computeSourceTileHeight(
         sourceWidth: Int,
         sourceHeight: Int,
