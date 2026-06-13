@@ -2,6 +2,12 @@ package com.manga.translate
 
 import android.content.Context
 import android.graphics.Bitmap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -12,10 +18,12 @@ import java.util.Locale
 
 class FloatingTranslationCacheStore(context: Context) {
     private val cacheFile = File(context.cacheDir, CACHE_FILE_NAME)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val textEntries =
         LinkedHashMap<String, TextCacheEntry>(TEXT_CACHE_LIMIT, 0.75f, true)
     private val imageEntries =
         LinkedHashMap<String, ImageCacheEntry>(IMAGE_CACHE_LIMIT, 0.75f, true)
+    private var pendingSaveJob: Job? = null
 
     init {
         loadFromDisk()
@@ -72,7 +80,7 @@ class FloatingTranslationCacheStore(context: Context) {
             updatedAt = System.currentTimeMillis()
         )
         trimToLimit(textEntries, TEXT_CACHE_LIMIT)
-        saveToDisk()
+        scheduleSaveLocked()
     }
 
     @Synchronized
@@ -97,7 +105,7 @@ class FloatingTranslationCacheStore(context: Context) {
             updatedAt = System.currentTimeMillis()
         )
         trimToLimit(imageEntries, IMAGE_CACHE_LIMIT)
-        saveToDisk()
+        scheduleSaveLocked()
     }
 
     fun createImageKey(bitmap: Bitmap): String {
@@ -115,6 +123,14 @@ class FloatingTranslationCacheStore(context: Context) {
         if (!cacheFile.exists()) return
         runCatching {
             val root = JSONObject(cacheFile.readText())
+            val version = when {
+                !root.has("version") -> LEGACY_CACHE_VERSION
+                else -> root.optInt("version", LEGACY_CACHE_VERSION)
+            }
+            if (version !in LEGACY_CACHE_VERSION..CACHE_SCHEMA_VERSION) {
+                AppLogger.log("FloatingCache", "Skip cache load for unsupported version=$version")
+                return
+            }
             val textArray = root.optJSONArray("text_entries") ?: JSONArray()
             for (index in 0 until textArray.length()) {
                 val item = textArray.optJSONObject(index) ?: continue
@@ -147,11 +163,27 @@ class FloatingTranslationCacheStore(context: Context) {
     }
 
     @Synchronized
-    private fun saveToDisk() {
+    private fun scheduleSaveLocked() {
+        pendingSaveJob?.cancel()
+        pendingSaveJob = ioScope.launch {
+            delay(SAVE_DEBOUNCE_MS)
+            persistSnapshot(snapshotForSave())
+        }
+    }
+
+    @Synchronized
+    private fun snapshotForSave(): CacheSnapshot {
+        return CacheSnapshot(
+            textEntries = textEntries.map { (key, entry) -> key to entry.copy() },
+            imageEntries = imageEntries.map { (key, entry) -> key to entry.copy() }
+        )
+    }
+
+    private fun persistSnapshot(snapshot: CacheSnapshot) {
         runCatching {
-            val root = JSONObject()
+            val root = JSONObject().put("version", CACHE_SCHEMA_VERSION)
             val textArray = JSONArray()
-            textEntries.forEach { (key, entry) ->
+            snapshot.textEntries.forEach { (key, entry) ->
                 textArray.put(
                     JSONObject()
                         .put("key", key)
@@ -161,7 +193,7 @@ class FloatingTranslationCacheStore(context: Context) {
                 )
             }
             val imageArray = JSONArray()
-            imageEntries.forEach { (key, entry) ->
+            snapshot.imageEntries.forEach { (key, entry) ->
                 imageArray.put(
                     JSONObject()
                         .put("key", key)
@@ -252,6 +284,9 @@ class FloatingTranslationCacheStore(context: Context) {
 
     companion object {
         private const val CACHE_FILE_NAME = "floating_translate_cache.json"
+        private const val LEGACY_CACHE_VERSION = 1
+        private const val CACHE_SCHEMA_VERSION = 2
+        private const val SAVE_DEBOUNCE_MS = 300L
         private const val TEXT_CACHE_LIMIT = 300
         private const val IMAGE_CACHE_LIMIT = 128
         private const val MIN_SIMILARITY_TEXT_LENGTH = 6
@@ -306,4 +341,9 @@ private data class TextCacheEntry(
 private data class ImageCacheEntry(
     val translation: String,
     val updatedAt: Long
+)
+
+private data class CacheSnapshot(
+    val textEntries: List<Pair<String, TextCacheEntry>>,
+    val imageEntries: List<Pair<String, ImageCacheEntry>>
 )

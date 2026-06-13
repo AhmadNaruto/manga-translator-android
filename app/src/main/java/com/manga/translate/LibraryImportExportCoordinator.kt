@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -424,7 +425,6 @@ internal class LibraryImportExportCoordinator(
         uiContext: Context,
         folder: File?,
         images: List<File>,
-        scope: CoroutineScope,
         exportThreads: Int,
         exportFormat: ExportFormat,
         requestExportDirectoryPermission: (Uri?) -> Unit,
@@ -464,7 +464,6 @@ internal class LibraryImportExportCoordinator(
             uiContext = uiContext,
             folder = folder,
             images = images,
-            scope = scope,
             exportThreads = pendingExportThreads,
             exportFormat = pendingExportFormat,
             onExitSelectionMode = onExitSelectionMode,
@@ -476,7 +475,6 @@ internal class LibraryImportExportCoordinator(
         uiContext: Context,
         folder: File?,
         images: List<File>,
-        scope: CoroutineScope,
         onExitSelectionMode: () -> Unit,
         onSetExportEnabled: (Boolean) -> Unit
     ) {
@@ -485,7 +483,6 @@ internal class LibraryImportExportCoordinator(
             uiContext = uiContext,
             folder = folder,
             images = images,
-            scope = scope,
             exportThreads = pendingExportThreads,
             exportFormat = pendingExportFormat,
             onExitSelectionMode = onExitSelectionMode,
@@ -497,7 +494,6 @@ internal class LibraryImportExportCoordinator(
         uiContext: Context,
         collectionFolder: File,
         chapterImages: List<Pair<File, List<File>>>,
-        scope: CoroutineScope,
         exportThreads: Int,
         exportFormat: ExportFormat,
         requestExportDirectoryPermission: (Uri?) -> Unit,
@@ -536,7 +532,6 @@ internal class LibraryImportExportCoordinator(
             uiContext = uiContext,
             collectionFolder = collectionFolder,
             chapterImages = chapterImages,
-            scope = scope,
             exportThreads = pendingExportThreads,
             exportFormat = pendingExportFormat,
             onExitSelectionMode = onExitSelectionMode,
@@ -548,7 +543,6 @@ internal class LibraryImportExportCoordinator(
         uiContext: Context,
         collectionFolder: File,
         chapterImages: List<Pair<File, List<File>>>,
-        scope: CoroutineScope,
         onExitSelectionMode: () -> Unit,
         onSetExportEnabled: (Boolean) -> Unit
     ) {
@@ -556,7 +550,6 @@ internal class LibraryImportExportCoordinator(
             uiContext = uiContext,
             collectionFolder = collectionFolder,
             chapterImages = chapterImages,
-            scope = scope,
             exportThreads = pendingExportThreads,
             exportFormat = pendingExportFormat,
             onExitSelectionMode = onExitSelectionMode,
@@ -568,7 +561,6 @@ internal class LibraryImportExportCoordinator(
         uiContext: Context,
         folder: File,
         images: List<File>,
-        scope: CoroutineScope,
         exportThreads: Int,
         exportFormat: ExportFormat,
         onExitSelectionMode: () -> Unit,
@@ -601,7 +593,7 @@ internal class LibraryImportExportCoordinator(
             appContext.getString(R.string.translation_keepalive_message)
         )
 
-        scope.launch {
+        launchExportTask exportTask@{
             var failed = false
             var exportDir: DocumentFile? = null
             var exportDirReady = true
@@ -625,7 +617,7 @@ internal class LibraryImportExportCoordinator(
                         appContext.getString(R.string.export_keepalive_title),
                         appContext.getString(R.string.export_failed)
                     )
-                    return@launch
+                    return@exportTask
                 }
                 ui.setFolderStatus(appContext.getString(R.string.exporting_progress, 0, exportImages.size))
                 var successPathHint: String? = null
@@ -764,7 +756,6 @@ internal class LibraryImportExportCoordinator(
         uiContext: Context,
         collectionFolder: File,
         chapterImages: List<Pair<File, List<File>>>,
-        scope: CoroutineScope,
         exportThreads: Int,
         exportFormat: ExportFormat,
         onExitSelectionMode: () -> Unit,
@@ -797,7 +788,7 @@ internal class LibraryImportExportCoordinator(
             appContext.getString(R.string.translation_keepalive_message)
         )
 
-        scope.launch {
+        launchExportTask {
             var failed = false
             try {
                 when (exportFormat) {
@@ -879,6 +870,10 @@ internal class LibraryImportExportCoordinator(
                 TranslationKeepAliveService.stop(appContext)
             }
         }
+    }
+
+    private fun launchExportTask(block: suspend CoroutineScope.() -> Unit) {
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch(block = block)
     }
 
     private suspend fun exportCollectionAsImageDir(

@@ -167,6 +167,12 @@ class FloatingBallOverlayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        val action = intent?.action
+        if (action != ACTION_START && !screenCaptureSession.isReady()) {
+            AppLogger.log("FloatingOCR", "Reject sticky restart without projection state")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         ensureForeground()
         ensureWindowManager()
         if (detectionOverlayView == null) {
@@ -175,7 +181,7 @@ class FloatingBallOverlayService : Service() {
         if (controllerRoot == null) {
             showControllerOverlay()
         }
-        if (intent?.action == ACTION_START) {
+        if (action == ACTION_START) {
             val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Int.MIN_VALUE)
             val data = intent.getParcelableIntentExtraCompat(EXTRA_RESULT_DATA)
             if (resultCode != Int.MIN_VALUE && data != null) {
@@ -183,6 +189,8 @@ class FloatingBallOverlayService : Service() {
                 prepareProjection(resultCode, data)
             } else {
                 AppLogger.log("FloatingOCR", "Start intent missing projection extras")
+                stopSelf()
+                return START_NOT_STICKY
             }
         }
         return START_STICKY

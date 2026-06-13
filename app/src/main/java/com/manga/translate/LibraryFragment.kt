@@ -211,7 +211,6 @@ class LibraryFragment : Fragment() {
                     uiContext = requireContext(),
                     collectionFolder = folder,
                     chapterImages = chapterImages,
-                    scope = viewLifecycleOwner.lifecycleScope,
                     onExitSelectionMode = { selectionController.exitSelectionMode() },
                     onSetExportEnabled = { enabled -> _binding?.folderExportCollection?.isEnabled = enabled }
                 )
@@ -220,7 +219,6 @@ class LibraryFragment : Fragment() {
                     uiContext = requireContext(),
                     folder = folder,
                     images = repository.listImages(folder),
-                    scope = viewLifecycleOwner.lifecycleScope,
                     onExitSelectionMode = { selectionController.exitSelectionMode() },
                     onSetExportEnabled = { enabled -> _binding?.folderExport?.isEnabled = enabled }
                 )
@@ -284,7 +282,6 @@ class LibraryFragment : Fragment() {
                         uiContext = requireContext(),
                         collectionFolder = folder,
                         chapterImages = chapterImages,
-                        scope = viewLifecycleOwner.lifecycleScope,
                         onExitSelectionMode = { selectionController.exitSelectionMode() },
                         onSetExportEnabled = { enabled -> _binding?.folderExportCollection?.isEnabled = enabled }
                     )
@@ -293,7 +290,6 @@ class LibraryFragment : Fragment() {
                         uiContext = requireContext(),
                         folder = folder,
                         images = repository.listImages(folder),
-                        scope = viewLifecycleOwner.lifecycleScope,
                         onExitSelectionMode = { selectionController.exitSelectionMode() },
                         onSetExportEnabled = { enabled -> _binding?.folderExport?.isEnabled = enabled }
                     )
@@ -1236,7 +1232,6 @@ class LibraryFragment : Fragment() {
                 uiContext = requireContext(),
                 folder = folder,
                 images = images,
-                scope = viewLifecycleOwner.lifecycleScope,
                 exportThreads = exportThreads,
                 exportFormat = exportFormat,
                 requestExportDirectoryPermission = { initialUri -> pickExportTree.launch(initialUri) },
@@ -1266,7 +1261,6 @@ class LibraryFragment : Fragment() {
                 uiContext = requireContext(),
                 collectionFolder = folder,
                 chapterImages = chapterImages,
-                scope = viewLifecycleOwner.lifecycleScope,
                 exportThreads = exportThreads,
                 exportFormat = exportFormat,
                 requestExportDirectoryPermission = { initialUri -> pickExportTree.launch(initialUri) },

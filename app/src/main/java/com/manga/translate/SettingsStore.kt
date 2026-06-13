@@ -641,7 +641,11 @@ class SettingsStore(context: Context) {
         val raw = prefs.getString(KEY_CUSTOM_REQUEST_PARAMETERS, null).orEmpty()
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val array = JSONArray(raw)
+            val array = parseVersionedArrayPayload(
+                raw = raw,
+                arrayKey = "items",
+                label = KEY_CUSTOM_REQUEST_PARAMETERS
+            )
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
@@ -683,7 +687,13 @@ class SettingsStore(context: Context) {
             )
         }
         prefs.edit() {
-            putString(KEY_CUSTOM_REQUEST_PARAMETERS, array.toString())
+            putString(
+                KEY_CUSTOM_REQUEST_PARAMETERS,
+                JSONObject()
+                    .put("version", SETTINGS_JSON_SCHEMA_VERSION)
+                    .put("items", array)
+                    .toString()
+            )
         }
     }
 
@@ -691,7 +701,11 @@ class SettingsStore(context: Context) {
         val raw = prefs.getString(KEY_ADDITIONAL_TRANSLATION_PROVIDERS, null).orEmpty()
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val array = JSONArray(raw)
+            val array = parseVersionedArrayPayload(
+                raw = raw,
+                arrayKey = "providers",
+                label = KEY_ADDITIONAL_TRANSLATION_PROVIDERS
+            )
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
@@ -727,7 +741,13 @@ class SettingsStore(context: Context) {
             )
         }
         prefs.edit() {
-            putString(KEY_ADDITIONAL_TRANSLATION_PROVIDERS, array.toString())
+            putString(
+                KEY_ADDITIONAL_TRANSLATION_PROVIDERS,
+                JSONObject()
+                    .put("version", SETTINGS_JSON_SCHEMA_VERSION)
+                    .put("providers", array)
+                    .toString()
+            )
         }
     }
 
@@ -769,6 +789,14 @@ class SettingsStore(context: Context) {
         if (raw.isBlank()) return AiProviderProfilesState(activeProfileName = null, profiles = emptyList())
         return runCatching {
             val root = JSONObject(raw)
+            val version = when {
+                !root.has("version") -> LEGACY_SETTINGS_JSON_VERSION
+                else -> root.optInt("version", LEGACY_SETTINGS_JSON_VERSION)
+            }
+            if (version !in LEGACY_SETTINGS_JSON_VERSION..SETTINGS_JSON_SCHEMA_VERSION) {
+                AppLogger.log("SettingsStore", "Skip ai provider profiles for unsupported version=$version")
+                return AiProviderProfilesState(activeProfileName = null, profiles = emptyList())
+            }
             val profilesJson = root.optJSONArray("profiles") ?: JSONArray()
             val profiles = buildList {
                 for (index in 0 until profilesJson.length()) {
@@ -867,6 +895,7 @@ class SettingsStore(context: Context) {
 
     private fun writeAiProviderProfilesState(state: AiProviderProfilesState) {
         val root = JSONObject()
+        root.put("version", SETTINGS_JSON_SCHEMA_VERSION)
         root.put("activeProfileName", state.activeProfileName.orEmpty())
         val profilesArray = JSONArray()
         state.profiles
@@ -875,6 +904,7 @@ class SettingsStore(context: Context) {
                 profilesArray.put(serializeAiProviderProfile(profile))
             }
         root.put("profiles", profilesArray)
+        aiProviderProfilesFile.parentFile?.mkdirs()
         aiProviderProfilesFile.writeText(root.toString())
     }
 
@@ -1159,6 +1189,27 @@ class SettingsStore(context: Context) {
         return appContext.getString(R.string.provider_name_default, index + 1)
     }
 
+    private fun parseVersionedArrayPayload(
+        raw: String,
+        arrayKey: String,
+        label: String
+    ): JSONArray {
+        val normalized = raw.trimStart()
+        if (normalized.startsWith("[")) {
+            return JSONArray(raw)
+        }
+        val root = JSONObject(raw)
+        val version = when {
+            !root.has("version") -> LEGACY_SETTINGS_JSON_VERSION
+            else -> root.optInt("version", LEGACY_SETTINGS_JSON_VERSION)
+        }
+        if (version !in LEGACY_SETTINGS_JSON_VERSION..SETTINGS_JSON_SCHEMA_VERSION) {
+            AppLogger.log("SettingsStore", "Skip $label for unsupported version=$version")
+            return JSONArray()
+        }
+        return root.optJSONArray(arrayKey) ?: JSONArray()
+    }
+
     private fun readDoubleWithDefault(key: String, defaultValue: Double): Double? {
         if (!prefs.contains(key)) return defaultValue
         val value = prefs.getString(key, null)
@@ -1247,6 +1298,8 @@ class SettingsStore(context: Context) {
         private const val KEY_LLM_PRESENCE_PENALTY = "llm_presence_penalty"
         private const val KEY_CUSTOM_REQUEST_PARAMETERS = "custom_request_parameters"
         private const val KEY_TRANSLATION_STYLE = "translation_style"
+        private const val LEGACY_SETTINGS_JSON_VERSION = 1
+        private const val SETTINGS_JSON_SCHEMA_VERSION = 2
         const val PRIMARY_PROVIDER_WEIGHT = 10
         private const val DEFAULT_LLM_TEMPERATURE = 0.8
         private const val DEFAULT_LLM_TOP_P = 1.0

@@ -117,48 +117,54 @@ class MangaOcrMobile(
 
     private fun preprocess(bitmap: Bitmap): ByteBuffer {
         val canvasBitmap = Bitmap.createBitmap(config.imageSize, config.imageSize, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(canvasBitmap)
-        canvas.drawColor(Color.WHITE)
+        var scaled: Bitmap? = null
+        try {
+            val canvas = Canvas(canvasBitmap)
+            canvas.drawColor(Color.WHITE)
 
-        val scale = min(
-            config.imageSize.toFloat() / bitmap.width.toFloat(),
-            config.imageSize.toFloat() / bitmap.height.toFloat()
-        )
-        val scaledWidth = max(1, (bitmap.width * scale).toInt())
-        val scaledHeight = max(1, (bitmap.height * scale).toInt())
-        val scaled = bitmap.scale(scaledWidth, scaledHeight)
-        val left = (config.imageSize - scaledWidth) / 2f
-        val top = (config.imageSize - scaledHeight) / 2f
-        canvas.drawBitmap(scaled, left, top, Paint(Paint.FILTER_BITMAP_FLAG))
+            val scale = min(
+                config.imageSize.toFloat() / bitmap.width.toFloat(),
+                config.imageSize.toFloat() / bitmap.height.toFloat()
+            )
+            val scaledWidth = max(1, (bitmap.width * scale).toInt())
+            val scaledHeight = max(1, (bitmap.height * scale).toInt())
+            scaled = bitmap.scale(scaledWidth, scaledHeight)
+            val left = (config.imageSize - scaledWidth) / 2f
+            val top = (config.imageSize - scaledHeight) / 2f
+            canvas.drawBitmap(scaled, left, top, Paint(Paint.FILTER_BITMAP_FLAG))
 
-        val buffer = ByteBuffer.allocateDirect(4 * 3 * config.imageSize * config.imageSize)
-        buffer.order(ByteOrder.nativeOrder())
-        val pixels = IntArray(config.imageSize * config.imageSize)
-        canvasBitmap.getPixels(
-            pixels,
-            0,
-            config.imageSize,
-            0,
-            0,
-            config.imageSize,
-            config.imageSize
-        )
-        for (channel in 0 until 3) {
-            for (pixel in pixels) {
-                val component = when (channel) {
-                    0 -> (pixel shr 16) and 0xFF
-                    1 -> (pixel shr 8) and 0xFF
-                    else -> pixel and 0xFF
+            val buffer = ByteBuffer.allocateDirect(4 * 3 * config.imageSize * config.imageSize)
+            buffer.order(ByteOrder.nativeOrder())
+            val pixels = IntArray(config.imageSize * config.imageSize)
+            canvasBitmap.getPixels(
+                pixels,
+                0,
+                config.imageSize,
+                0,
+                0,
+                config.imageSize,
+                config.imageSize
+            )
+            for (channel in 0 until 3) {
+                for (pixel in pixels) {
+                    val component = when (channel) {
+                        0 -> (pixel shr 16) and 0xFF
+                        1 -> (pixel shr 8) and 0xFF
+                        else -> pixel and 0xFF
+                    }
+                    buffer.putFloat(component / 255f)
                 }
-                buffer.putFloat(component / 255f)
+            }
+            buffer.rewind()
+            return buffer
+        } finally {
+            if (scaled != null && scaled !== bitmap && !scaled.isRecycled) {
+                scaled.recycle()
+            }
+            if (!canvasBitmap.isRecycled) {
+                canvasBitmap.recycle()
             }
         }
-        buffer.rewind()
-        if (scaled !== bitmap && !scaled.isRecycled) {
-            scaled.recycle()
-        }
-        canvasBitmap.recycle()
-        return buffer
     }
 
     private fun initializeSelfCache(initCache: Any): DecoderTokenCache {

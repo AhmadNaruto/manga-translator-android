@@ -117,7 +117,7 @@ class LlmClient(
         for (attempt in 1..RETRY_COUNT) {
             currentCoroutineContext().ensureActive()
             val result = try {
-                val response = executeRequest(
+                executeRequest(
                     request = Request.Builder()
                         .url(endpoint)
                         .post(payload.toString().toRequestBody(jsonMediaType))
@@ -125,16 +125,17 @@ class LlmClient(
                         .header("Authorization", "Bearer ${ocrSettings.apiKey}")
                         .build(),
                     timeoutMs = timeoutMs
-                )
-                val code = response.code
-                val body = response.body?.string().orEmpty()
-                if (code !in 200..299) {
-                    AppLogger.log("LlmClient", "OCR HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
-                    lastErrorCode = "HTTP $code"
-                    lastErrorBody = body
-                    null
-                } else {
-                    parseResponseContent(body, ApiFormat.OPENAI_COMPATIBLE)?.trim()
+                ).use { response ->
+                    val code = response.code
+                    val body = response.body?.string().orEmpty()
+                    if (code !in 200..299) {
+                        AppLogger.log("LlmClient", "OCR HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
+                        lastErrorCode = "HTTP $code"
+                        lastErrorBody = body
+                        null
+                    } else {
+                        parseResponseContent(body, ApiFormat.OPENAI_COMPATIBLE)?.trim()
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -219,37 +220,38 @@ class LlmClient(
         for (attempt in 1..retries) {
             currentCoroutineContext().ensureActive()
             val result = try {
-                val response = executeRequest(
+                executeRequest(
                     request = buildJsonPostRequest(endpoint, payload, settings),
                     timeoutMs = timeoutMs
-                )
-                val code = response.code
-                val body = response.body?.string().orEmpty()
-                if (code !in 200..299) {
-                    AppLogger.log(
-                        "LlmClient",
-                        "HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}"
-                    )
-                    lastErrorCode = "HTTP $code"
-                    lastErrorBody = body
-                    null
-                } else {
-                    val content = parseResponseContent(body, settings.apiFormat)
-                    if (content == null) {
+                ).use { response ->
+                    val code = response.code
+                    val body = response.body?.string().orEmpty()
+                    if (code !in 200..299) {
                         AppLogger.log(
                             "LlmClient",
-                            "Empty or invalid response content from ${redactEndpoint(endpoint)}"
+                            "HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}"
                         )
-                        lastResponseException = LlmResponseException(
-                            errorCode = "INVALID_RESPONSE",
-                            responseContent = body.ifBlank {
-                                appContext.getString(R.string.model_response_empty_content)
-                            }
-                        )
-                    } else if (logModelIo) {
-                        AppLogger.log("LlmClient", "Model output: $content")
+                        lastErrorCode = "HTTP $code"
+                        lastErrorBody = body
+                        null
+                    } else {
+                        val content = parseResponseContent(body, settings.apiFormat)
+                        if (content == null) {
+                            AppLogger.log(
+                                "LlmClient",
+                                "Empty or invalid response content from ${redactEndpoint(endpoint)}"
+                            )
+                            lastResponseException = LlmResponseException(
+                                errorCode = "INVALID_RESPONSE",
+                                responseContent = body.ifBlank {
+                                    appContext.getString(R.string.model_response_empty_content)
+                                }
+                            )
+                        } else if (logModelIo) {
+                            AppLogger.log("LlmClient", "Model output: $content")
+                        }
+                        content
                     }
-                    content
                 }
             } catch (e: SocketTimeoutException) {
                 AppLogger.log("LlmClient", "Request timeout on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
@@ -319,34 +321,35 @@ class LlmClient(
         for (attempt in 1..retries) {
             currentCoroutineContext().ensureActive()
             val result = try {
-                val response = executeRequest(
+                executeRequest(
                     request = buildJsonPostRequest(endpoint, payload, settings),
                     timeoutMs = timeoutMs
-                )
-                val code = response.code
-                val body = response.body?.string().orEmpty()
-                if (code !in 200..299) {
-                    AppLogger.log("LlmClient", "HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
-                    lastErrorCode = "HTTP $code"
-                    lastErrorBody = body
-                    null
-                } else {
-                    val content = parseResponseContent(body, settings.apiFormat)
-                    if (content == null) {
-                        AppLogger.log(
-                            "LlmClient",
-                            "Empty or invalid image response content from ${redactEndpoint(endpoint)}"
-                        )
-                        lastResponseException = LlmResponseException(
-                            errorCode = "INVALID_RESPONSE",
-                            responseContent = body.ifBlank {
-                                appContext.getString(R.string.model_response_empty_content)
-                            }
-                        )
-                    } else if (logModelIo) {
-                        AppLogger.log("LlmClient", "Model output: ${sanitizeModelIoForLog(content)}")
+                ).use { response ->
+                    val code = response.code
+                    val body = response.body?.string().orEmpty()
+                    if (code !in 200..299) {
+                        AppLogger.log("LlmClient", "HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
+                        lastErrorCode = "HTTP $code"
+                        lastErrorBody = body
+                        null
+                    } else {
+                        val content = parseResponseContent(body, settings.apiFormat)
+                        if (content == null) {
+                            AppLogger.log(
+                                "LlmClient",
+                                "Empty or invalid image response content from ${redactEndpoint(endpoint)}"
+                            )
+                            lastResponseException = LlmResponseException(
+                                errorCode = "INVALID_RESPONSE",
+                                responseContent = body.ifBlank {
+                                    appContext.getString(R.string.model_response_empty_content)
+                                }
+                            )
+                        } else if (logModelIo) {
+                            AppLogger.log("LlmClient", "Model output: ${sanitizeModelIoForLog(content)}")
+                        }
+                        content
                     }
-                    content
                 }
             } catch (e: SocketTimeoutException) {
                 AppLogger.log("LlmClient", "Request timeout on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
@@ -1105,24 +1108,25 @@ class LlmClient(
                 if (apiFormat == ApiFormat.OPENAI_COMPATIBLE && apiKey.isNotBlank()) {
                     requestBuilder.header("Authorization", "Bearer $apiKey")
                 }
-                val response = executeRequest(requestBuilder.build(), timeoutMs)
-                val code = response.code
-                val body = response.body?.string().orEmpty()
-                if (code !in 200..299) {
-                    AppLogger.log(
-                        "LlmClient",
-                        "Model list HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}"
-                    )
-                    lastErrorCode = "HTTP $code"
-                    lastErrorBody = body
-                    null
-                } else {
-                    val models = parseModelList(body, apiFormat)
-                    if (models.isEmpty()) {
-                        lastErrorCode = "EMPTY_RESPONSE"
+                executeRequest(requestBuilder.build(), timeoutMs).use { response ->
+                    val code = response.code
+                    val body = response.body?.string().orEmpty()
+                    if (code !in 200..299) {
+                        AppLogger.log(
+                            "LlmClient",
+                            "Model list HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}"
+                        )
+                        lastErrorCode = "HTTP $code"
                         lastErrorBody = body
+                        null
+                    } else {
+                        val models = parseModelList(body, apiFormat)
+                        if (models.isEmpty()) {
+                            lastErrorCode = "EMPTY_RESPONSE"
+                            lastErrorBody = body
+                        }
+                        models
                     }
-                    models
                 }
             } catch (e: CancellationException) {
                 throw e
