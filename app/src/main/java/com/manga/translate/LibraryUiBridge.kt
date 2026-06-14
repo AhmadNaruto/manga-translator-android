@@ -52,6 +52,7 @@ internal object LibraryUiBridge {
             return
         }
         for (callback in snapshot) {
+            if (!callbacks.contains(callback)) continue
             if (!callback.isUiAttached()) continue
             callback.showModelError(content, useSystemOverlay, onRetry, onSkip)
         }

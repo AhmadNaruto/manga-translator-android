@@ -76,7 +76,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private var sourceWidth = 1
     private var sourceHeight = 1
     private var bubbles: List<BubbleTranslation> = emptyList()
-    private var bubbleRenderSettings = SettingsStore(context).loadFloatingBubbleRenderSettings()
+    private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadFloatingBubbleRenderSettings()
     private var bubbleOpacity = bubbleRenderSettings.opacityPercent / 100f
     private var editMode = false
     private var createBubbleMode = false

@@ -91,10 +91,48 @@ internal object BubbleShapePaths {
             return
         }
 
-        val safeRect = estimateSafeTextRect(path, pathBounds, pad)
+        val safeRect = cachedSafeTextRect(path, pathBounds, pad)
         if (safeRect != null && safeRect.width() > 0f && safeRect.height() > 0f) {
             outRect.set(safeRect)
         }
+    }
+
+    private data class SafeRectCacheKey(
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+        val pad: Float
+    )
+
+    private val safeRectCache = androidx.collection.LruCache<SafeRectCacheKey, RectF>(128)
+
+    fun cachedSafeTextRect(
+        path: Path,
+        pathBounds: RectF,
+        fallbackPad: Float
+    ): RectF? {
+        val key = SafeRectCacheKey(
+            left = pathBounds.left.toInt(),
+            top = pathBounds.top.toInt(),
+            right = pathBounds.right.toInt(),
+            bottom = pathBounds.bottom.toInt(),
+            pad = fallbackPad
+        )
+        safeRectCache.get(key)?.let { cached ->
+            if (cached.width() > 0f && cached.height() > 0f) {
+                return RectF(cached)
+            }
+        }
+        val computed = estimateSafeTextRect(path, pathBounds, fallbackPad) ?: return null
+        if (computed.width() > 0f && computed.height() > 0f) {
+            safeRectCache.put(key, RectF(computed))
+        }
+        return computed
+    }
+
+    fun clearSafeRectCache() {
+        safeRectCache.evictAll()
     }
 
     private fun applyShrink(path: Path, shrinkPercent: Int) {

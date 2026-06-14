@@ -111,6 +111,7 @@ class FloatingBallOverlayService : Service() {
     private var currentSessionBitmap: Bitmap? = null
     private var editModeEnabled = false
     private var createBubbleModeEnabled = false
+    private var confirmEditInFlight = false
     private var editSessionDirty = false
     private var autoCloseReferenceFrame: ScreenChangeReferenceFrame? = null
     private var autoCloseCheckJob: Job? = null
@@ -199,6 +200,8 @@ class FloatingBallOverlayService : Service() {
     override fun onDestroy() {
         detectJob?.cancel()
         autoCloseCheckJob?.cancel()
+        mainHandler.removeCallbacks(autoCloseCheckRunnable)
+        mainHandler.removeCallbacks(hideProgressStatusRunnable)
         blankBubbleErrorDialog?.dismiss()
         blankBubbleErrorDialog = null
         localModelReleaseCallback?.close()
@@ -513,7 +516,8 @@ class FloatingBallOverlayService : Service() {
         try {
             windowManager.removeView(root)
             windowManager.addView(root, params)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            AppLogger.log("FloatingOCR", "ensureControllerOnTop failed", e)
         }
     }
 
@@ -756,6 +760,7 @@ class FloatingBallOverlayService : Service() {
 
     private fun confirmEditSession() {
         if (!editModeEnabled) return
+        if (confirmEditInFlight) return
         val session = currentSession ?: run {
             finishEditSession(showToast = false)
             return
@@ -769,6 +774,7 @@ class FloatingBallOverlayService : Service() {
         }
         showProgressStatus(R.string.overlay_empty_bubble_translating)
         detectJob?.cancel()
+        confirmEditInFlight = true
         detectJob = scope.launch(Dispatchers.Default) {
             val runningJob = currentCoroutineContext()[Job]
             val localModelLease = appContainer.localModelMemoryManager.acquire("FloatingEdit")
@@ -836,6 +842,7 @@ class FloatingBallOverlayService : Service() {
                     if (detectJob === runningJob) {
                         detectJob = null
                     }
+                    confirmEditInFlight = false
                     updateAutoCloseDetectionState()
                 }
             }

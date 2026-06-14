@@ -87,7 +87,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var editMode = false
     private var touchPassthroughEnabled = false
     private var editScrollThroughEnabled = false
-    private var bubbleRenderSettings = SettingsStore(context).loadNormalBubbleRenderSettings()
+    private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadNormalBubbleRenderSettings()
     private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
     private val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
     private val doubleTapSlop = ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat()
