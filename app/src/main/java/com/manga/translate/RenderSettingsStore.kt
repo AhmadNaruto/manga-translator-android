@@ -1,0 +1,221 @@
+package com.manga.translate
+
+internal class RenderSettingsStore(
+    private val storage: SettingsStoreStorage
+) {
+    fun loadUseHorizontalText(): Boolean {
+        return storage.prefs.getBoolean(SettingsStore.KEY_HORIZONTAL_TEXT, true)
+    }
+
+    fun saveUseHorizontalText(enabled: Boolean) {
+        storage.editSettings(setOf(SettingsStore.KEY_HORIZONTAL_TEXT)) {
+            putBoolean(SettingsStore.KEY_HORIZONTAL_TEXT, enabled)
+        }
+    }
+
+    fun loadNormalBubbleRenderSettings(): NormalBubbleRenderSettings {
+        return NormalBubbleRenderSettings(
+            shrinkPercent = storage.prefs.getInt(
+                SettingsStore.KEY_NORMAL_BUBBLE_SHRINK_PERCENT,
+                SettingsStore.DEFAULT_NORMAL_BUBBLE_SHRINK_PERCENT
+            ).coerceIn(
+                SettingsStore.MIN_NORMAL_BUBBLE_SHRINK_PERCENT,
+                SettingsStore.MAX_NORMAL_BUBBLE_SHRINK_PERCENT
+            ),
+            opacityPercent = loadTranslationBubbleOpacityPercent(),
+            freeBubbleShrinkPercent = storage.prefs.getInt(
+                SettingsStore.KEY_NORMAL_FREE_BUBBLE_SHRINK_PERCENT,
+                SettingsStore.DEFAULT_NORMAL_FREE_BUBBLE_SHRINK_PERCENT
+            ).coerceIn(
+                SettingsStore.MIN_NORMAL_BUBBLE_SHRINK_PERCENT,
+                SettingsStore.MAX_NORMAL_BUBBLE_SHRINK_PERCENT
+            ),
+            freeBubbleOpacityPercent = storage.prefs.getInt(
+                SettingsStore.KEY_NORMAL_FREE_BUBBLE_OPACITY_PERCENT,
+                SettingsStore.DEFAULT_NORMAL_FREE_BUBBLE_OPACITY_PERCENT
+            ).coerceIn(
+                SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+                SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
+            ),
+            minAreaPerCharSp = storage.prefs.getFloat(
+                SettingsStore.KEY_NORMAL_BUBBLE_MIN_AREA_PER_CHAR_SP,
+                SettingsStore.DEFAULT_NORMAL_MIN_AREA_PER_CHAR_SP
+            ).coerceIn(
+                SettingsStore.MIN_NORMAL_MIN_AREA_PER_CHAR_SP,
+                SettingsStore.MAX_NORMAL_MIN_AREA_PER_CHAR_SP
+            ),
+            useHorizontalText = loadUseHorizontalText()
+        )
+    }
+
+    fun saveNormalBubbleRenderSettings(settings: NormalBubbleRenderSettings) {
+        storage.editSettings(
+            setOf(
+                SettingsStore.KEY_NORMAL_BUBBLE_SHRINK_PERCENT,
+                SettingsStore.KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+                SettingsStore.KEY_NORMAL_BUBBLE_MIN_AREA_PER_CHAR_SP,
+                SettingsStore.KEY_NORMAL_FREE_BUBBLE_SHRINK_PERCENT,
+                SettingsStore.KEY_NORMAL_FREE_BUBBLE_OPACITY_PERCENT,
+                SettingsStore.KEY_HORIZONTAL_TEXT
+            )
+        ) {
+            putInt(
+                SettingsStore.KEY_NORMAL_BUBBLE_SHRINK_PERCENT,
+                settings.shrinkPercent.coerceIn(
+                    SettingsStore.MIN_NORMAL_BUBBLE_SHRINK_PERCENT,
+                    SettingsStore.MAX_NORMAL_BUBBLE_SHRINK_PERCENT
+                )
+            )
+                .putInt(
+                    SettingsStore.KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+                    settings.opacityPercent.coerceIn(
+                        SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+                        SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
+                    )
+                )
+                .putFloat(
+                    SettingsStore.KEY_NORMAL_BUBBLE_MIN_AREA_PER_CHAR_SP,
+                    settings.minAreaPerCharSp.coerceIn(
+                        SettingsStore.MIN_NORMAL_MIN_AREA_PER_CHAR_SP,
+                        SettingsStore.MAX_NORMAL_MIN_AREA_PER_CHAR_SP
+                    )
+                )
+                .putInt(
+                    SettingsStore.KEY_NORMAL_FREE_BUBBLE_SHRINK_PERCENT,
+                    settings.freeBubbleShrinkPercent.coerceIn(
+                        SettingsStore.MIN_NORMAL_BUBBLE_SHRINK_PERCENT,
+                        SettingsStore.MAX_NORMAL_BUBBLE_SHRINK_PERCENT
+                    )
+                )
+                .putInt(
+                    SettingsStore.KEY_NORMAL_FREE_BUBBLE_OPACITY_PERCENT,
+                    settings.freeBubbleOpacityPercent.coerceIn(
+                        SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+                        SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
+                    )
+                )
+                .putBoolean(SettingsStore.KEY_HORIZONTAL_TEXT, settings.useHorizontalText)
+        }
+    }
+
+    fun loadFloatingBubbleRenderSettings(): FloatingBubbleRenderSettings {
+        return FloatingBubbleRenderSettings(
+            sizeAdjustPercent = storage.prefs.getInt(
+                SettingsStore.KEY_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
+                SettingsStore.DEFAULT_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT
+            ).coerceIn(
+                SettingsStore.MIN_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
+                SettingsStore.MAX_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT
+            ),
+            opacityPercent = storage.prefs.getInt(
+                SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT,
+                loadTranslationBubbleOpacityPercent()
+            ).coerceIn(
+                SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+                SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
+            ),
+            shape = FloatingBubbleShape.fromPref(
+                storage.prefs.getString(
+                    SettingsStore.KEY_FLOATING_BUBBLE_SHAPE,
+                    FloatingBubbleShape.RECTANGLE.prefValue
+                )
+            ),
+            useHorizontalText = storage.prefs.getBoolean(
+                SettingsStore.KEY_FLOATING_BUBBLE_HORIZONTAL_TEXT,
+                true
+            ),
+            minAreaPerCharSp = storage.prefs.getFloat(
+                SettingsStore.KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP,
+                SettingsStore.DEFAULT_FLOATING_MIN_AREA_PER_CHAR_SP
+            ).coerceIn(
+                SettingsStore.MIN_FLOATING_MIN_AREA_PER_CHAR_SP,
+                SettingsStore.MAX_FLOATING_MIN_AREA_PER_CHAR_SP
+            )
+        )
+    }
+
+    fun saveFloatingBubbleRenderSettings(settings: FloatingBubbleRenderSettings) {
+        storage.editSettings(
+            setOf(
+                SettingsStore.KEY_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
+                SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT,
+                SettingsStore.KEY_FLOATING_BUBBLE_SHAPE,
+                SettingsStore.KEY_FLOATING_BUBBLE_HORIZONTAL_TEXT,
+                SettingsStore.KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP
+            )
+        ) {
+            putInt(
+                SettingsStore.KEY_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
+                settings.sizeAdjustPercent.coerceIn(
+                    SettingsStore.MIN_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
+                    SettingsStore.MAX_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT
+                )
+            )
+                .putInt(
+                    SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT,
+                    settings.opacityPercent.coerceIn(
+                        SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+                        SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
+                    )
+                )
+                .putString(SettingsStore.KEY_FLOATING_BUBBLE_SHAPE, settings.shape.prefValue)
+                .putBoolean(
+                    SettingsStore.KEY_FLOATING_BUBBLE_HORIZONTAL_TEXT,
+                    settings.useHorizontalText
+                )
+                .putFloat(
+                    SettingsStore.KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP,
+                    settings.minAreaPerCharSp.coerceIn(
+                        SettingsStore.MIN_FLOATING_MIN_AREA_PER_CHAR_SP,
+                        SettingsStore.MAX_FLOATING_MIN_AREA_PER_CHAR_SP
+                    )
+                )
+        }
+    }
+
+    fun loadBubbleConfThresholdPercent(): Int {
+        val saved = storage.prefs.getInt(
+            SettingsStore.KEY_BUBBLE_CONF_THRESHOLD_PERCENT,
+            SettingsStore.DEFAULT_BUBBLE_CONF_THRESHOLD_PERCENT
+        )
+        return saved.coerceIn(
+            SettingsStore.MIN_BUBBLE_CONF_THRESHOLD_PERCENT,
+            SettingsStore.MAX_BUBBLE_CONF_THRESHOLD_PERCENT
+        )
+    }
+
+    fun saveBubbleConfThresholdPercent(value: Int) {
+        val normalized = value.coerceIn(
+            SettingsStore.MIN_BUBBLE_CONF_THRESHOLD_PERCENT,
+            SettingsStore.MAX_BUBBLE_CONF_THRESHOLD_PERCENT
+        )
+        storage.editSettings(setOf(SettingsStore.KEY_BUBBLE_CONF_THRESHOLD_PERCENT)) {
+            putInt(SettingsStore.KEY_BUBBLE_CONF_THRESHOLD_PERCENT, normalized)
+        }
+    }
+
+    fun loadTranslationBubbleOpacityPercent(): Int {
+        val saved = storage.prefs.getInt(
+            SettingsStore.KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+            SettingsStore.DEFAULT_TRANSLATION_BUBBLE_OPACITY_PERCENT
+        )
+        return saved.coerceIn(
+            SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+            SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
+        )
+    }
+
+    fun loadTranslationBubbleOpacity(): Float {
+        return loadTranslationBubbleOpacityPercent() / 100f
+    }
+
+    fun saveTranslationBubbleOpacityPercent(value: Int) {
+        val normalized = value.coerceIn(
+            SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+            SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
+        )
+        storage.editSettings(setOf(SettingsStore.KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT)) {
+            putInt(SettingsStore.KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT, normalized)
+        }
+    }
+}

@@ -11,12 +11,12 @@
 | 场景 | 关键位置 |
 |-----|---------|
 | 翻译主流程 | `app/src/main/java/com/manga/translate/TranslationPipeline.kt` |
-| 多供应商调度 | `SettingsFragment.kt`、`SettingsStore.kt`、`TranslationProviderScheduler.kt`、`FolderTranslationCoordinator.kt` |
+| 多供应商调度 | `SettingsFragment.kt`、`SettingsStore.kt`、`ProviderProfileStore.kt`、`TranslationProviderScheduler.kt`、`FolderTranslationCoordinator.kt` |
 | 页面区域检测 | `app/src/main/java/com/manga/translate/PageRegionDetector.kt`、`BubbleDetector.kt`、`TextDetector.kt` |
 | OCR 相关 | `app/src/main/java/com/manga/translate/OcrSharedTools.kt`、`OcrEngine.kt`、`MangaOcr.kt`、`EnglishOcr.kt`、`KoreanOcr.kt` |
 | 漫画库 / 导入导出 | `LibraryFragment.kt`、`LibraryRepository.kt`、`LibraryImportExportCoordinator.kt` |
 | 阅读与气泡编辑 | `ReadingFragment.kt`、`ReadingSessionViewModel.kt`、`ReadingImageTransformController.kt`、`FloatingTranslationView.kt`、`BubbleRenderer.kt`、`BubbleTextScaling.kt` |
-| 设置页与参数持久化 | `SettingsFragment.kt`、`SettingsPersistenceController.kt`、`SettingsStore.kt`、`dialog_normal_bubble_render_settings.xml`、`dialog_floating_bubble_render_settings.xml` |
+| 设置页与参数持久化 | `SettingsFragment.kt`、`SettingsStore.kt`、`ApiSettingsStore.kt`、`OcrSettingsStore.kt`、`RenderSettingsStore.kt`、`LlmParameterStore.kt`、`ProviderProfileStore.kt` |
 | 后台翻译保活 / 恢复 | `TranslationKeepAliveService.kt`、`TranslationTaskPersistence.kt`、`LibraryUiBridge.kt`、`ServiceLibraryUiCallbacks.kt` |
 | 悬浮窗翻译 | `FloatingBallOverlayService.kt`、`FloatingDetectionOverlayView.kt`、`FloatingBubbleTranslationCoordinator.kt`、`FloatingEmptyBubbleCoordinator.kt` |
 | 更新检测 | `UpdateChecker.kt`、`update.json` |
@@ -105,7 +105,8 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 - `LibraryFragment.kt`：漫画库主页面与文件夹详情入口。
 - `ReadingFragment.kt`：阅读页面容器。
 - `SettingsFragment.kt`：设置页主入口。
-- `SettingsPersistenceController.kt`：设置项保存与归一化。
+- `SettingsStore.kt`：设置门面，向外保持统一 API，向内委托给多个子 store。
+- `ApiSettingsStore.kt`、`OcrSettingsStore.kt`、`RenderSettingsStore.kt`、`AppSettingsStore.kt`、`LlmParameterStore.kt`、`ProviderProfileStore.kt`：按领域拆分后的设置持久化实现。
 
 ### Library 相关
 - `LibraryRepository.kt`：漫画库目录与文件操作的核心数据入口。
@@ -161,7 +162,8 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 - `ExtractStateStore.kt`：译名抽取状态。
 - `FloatingTranslationCacheStore.kt`：悬浮窗翻译缓存，持久化到 APP `cacheDir`，清除应用缓存即可清空。
 - `TranslationTaskPersistence.kt`：后台翻译任务描述持久化，供前台服务恢复未完成任务。
-- `SettingsStore.kt`：全局设置项读写。
+- `SettingsStore.kt`：全局设置门面；主调用入口保持不变。
+- `ApiSettingsStore.kt`、`OcrSettingsStore.kt`、`RenderSettingsStore.kt`、`AppSettingsStore.kt`、`LlmParameterStore.kt`、`ProviderProfileStore.kt`：设置读写的分层实现。
 - `ReadingProgressStore.kt`：阅读进度。
 - `CrashStateStore.kt`：崩溃状态。
 - `UpdateIgnoreStore.kt`：忽略更新版本。
@@ -252,7 +254,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 
 当前主文本翻译链路已接入多供应商调度：
 - 设置入口位于 `SettingsFragment.kt` 主模型配置区的“多供应商调度”按钮，对话框布局在 `dialog_multi_provider_scheduling.xml` 与 `item_additional_translation_provider.xml`。
-- 配置持久化统一由 `SettingsStore.kt` 负责，附加供应商字段固定为 `name`、`apiUrl`、`apiKey`、`modelName`、`weight`、`enabled`。
+- 配置持久化统一通过 `SettingsStore.kt` 门面进入，供应商相关序列化当前由 `ProviderProfileStore.kt` 负责；附加供应商字段固定为 `name`、`apiUrl`、`apiKey`、`modelName`、`weight`、`enabled`。
 - 主供应商始终参与主文本翻译调度，权重固定为 `10`；附加供应商只要 `enabled` 且配置完整，就会被加入主文本供应商池。
 - 当前调度范围只覆盖主文本翻译任务，也就是普通逐页翻译、全文速译、合集/章节标准翻译和相关重译路径；不接入 OCR、悬浮窗专用翻译设置、VL 图片翻译。
 - `TranslationPipeline.kt` 仍保持单次请求只面向一个 `ApiSettings`；页面级供应商选择、失败切换和并发调度位于 `FolderTranslationCoordinator.kt` 外围执行层。
@@ -301,7 +303,8 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 
 ### 设置与供应商配置
 - UI：`SettingsFragment.kt`
-- 持久化：`SettingsStore.kt`
+- 门面：`SettingsStore.kt`
+- 领域持久化：`ApiSettingsStore.kt`、`OcrSettingsStore.kt`、`RenderSettingsStore.kt`、`AppSettingsStore.kt`、`LlmParameterStore.kt`、`ProviderProfileStore.kt`
 - 命名配置文件：`files/ai_provider_profiles.json`
 
 当前与气泡框渲染直接相关的设置分为两组：
@@ -370,7 +373,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 | `TranslationTaskPersistence.kt` | 后台翻译任务描述读写 |
 
 ### SharedPreferences
-- 统一入口：`SettingsStore.kt`
+- 统一入口：`SettingsStore.kt`（门面）
 - 文件夹级设置访问：`LibraryPreferencesGateway.kt`
 - 阅读进度：`ReadingProgressStore.kt`
 
@@ -401,7 +404,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 构建或运行问题优先检查：
   - Gradle / SDK 版本
   - `AndroidManifest.xml` 权限声明
-  - `SettingsStore.kt` 对应配置是否写入
+  - `SettingsStore.kt` 及对应子 store 是否把配置写入预期 key
   - `TranslationPipeline.kt` / `LlmClient.kt` / `TranslationProviderScheduler.kt` / `OcrSharedTools.kt` / `Ocr` 实现链路
   - `TranslationKeepAliveService.kt` / `FolderTranslationCoordinator.kt` / `TranslationTaskPersistence.kt` / `LibraryUiBridge.kt` 后台翻译链路
   - 日志输出和相关 `*.json` / `*.ocr.json`
