@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.text.InputType
 import android.util.TypedValue
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.CheckBox
@@ -17,6 +18,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.widget.TextViewCompat
 import androidx.documentfile.provider.DocumentFile
+import com.google.android.material.textfield.TextInputEditText
 import java.util.Locale
 
 internal class LibraryDialogs {
@@ -337,33 +339,17 @@ internal class LibraryDialogs {
         exportRootPathHint: String,
         onConfirm: (Int, LibraryImportExportCoordinator.ExportFormat) -> Unit
     ) {
-        val input = EditText(context).apply {
-            hint = context.getString(R.string.export_thread_hint)
+        val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_export_options, null)
+        val input = dialogView.findViewById<TextInputEditText>(R.id.export_thread_input).apply {
             setText(formatInt(defaultThreads))
-            setSelection(text.length)
+            setSelection(text?.length ?: 0)
             inputType = InputType.TYPE_CLASS_NUMBER
             imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
         }
-        applyDialogTextColors(context, input)
-        val formatGroup = RadioGroup(context).apply {
-            orientation = RadioGroup.VERTICAL
-        }
-        val imageDirRadio = RadioButton(context).apply {
-            id = android.view.View.generateViewId()
-            text = context.getString(R.string.export_format_images_option)
-        }
-        val cbzRadio = RadioButton(context).apply {
-            id = android.view.View.generateViewId()
-            text = context.getString(R.string.export_format_cbz_option)
-        }
-        val pdfRadio = RadioButton(context).apply {
-            id = android.view.View.generateViewId()
-            text = context.getString(R.string.export_format_pdf_option)
-        }
-        listOf(imageDirRadio, cbzRadio, pdfRadio).forEach { radio ->
-            applyDialogTextColors(context, radio)
-            formatGroup.addView(radio, matchWrapLayoutParams())
-        }
+        val formatGroup = dialogView.findViewById<RadioGroup>(R.id.export_format_group)
+        val imageDirRadio = dialogView.findViewById<RadioButton>(R.id.export_format_images)
+        val cbzRadio = dialogView.findViewById<RadioButton>(R.id.export_format_cbz)
+        val pdfRadio = dialogView.findViewById<RadioButton>(R.id.export_format_pdf)
         formatGroup.check(
             when (defaultExportFormat) {
                 LibraryImportExportCoordinator.ExportFormat.IMAGE_DIR -> imageDirRadio.id
@@ -371,19 +357,12 @@ internal class LibraryDialogs {
                 LibraryImportExportCoordinator.ExportFormat.PDF -> pdfRadio.id
             }
         )
-        val pathHintView = TextView(context).apply {
-            setPadding(0, dp(context, 8f), 0, 0)
+        dialogView.findViewById<TextView>(R.id.export_path_hint).apply {
             text = context.getString(R.string.export_path_hint_format, exportRootPathHint)
-        }
-        applyDialogTextColors(context, pathHintView, useHintColor = true)
-        val container = buildDialogContainer(context).apply {
-            addView(input, matchWrapLayoutParams())
-            addView(formatGroup, matchWrapLayoutParams())
-            addView(pathHintView, matchWrapLayoutParams())
         }
         AlertDialog.Builder(context)
             .setTitle(R.string.export_options_title)
-            .setView(container)
+            .setView(dialogView)
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val threadCount = input.text?.toString()?.toIntOrNull()

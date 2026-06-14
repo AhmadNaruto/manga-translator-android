@@ -34,8 +34,7 @@ class LibraryRepository(private val context: Context) {
     }
 
     fun isCollectionFolder(folder: File): Boolean {
-        if (collectionMarkerFile(folder).exists()) return true
-        return listImages(folder).isEmpty() && listChildFolders(folder).isNotEmpty()
+        return collectionMarkerFile(folder).exists()
     }
 
     fun createFolder(name: String): File? {

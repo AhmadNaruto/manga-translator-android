@@ -879,30 +879,33 @@ internal class LibraryExporter(
     ): PreparedCbzEntry? {
         val renderer = BubbleRenderer(context)
         val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return null
-        val translation = translationStore.load(imageFile)
-        val output = if (translation != null && translation.bubbles.any { it.text.isNotBlank() }) {
-            renderer.render(bitmap, translation, verticalLayoutEnabled)
-        } else {
-            bitmap
-        }
-        val spec = resolveExportSpec(imageFile.name)
-        val entryName = "$prefix/${spec.displayName}"
-        val tempFile = File(tempDir, "entry_$index")
-        val success = try {
-            FileOutputStream(tempFile).use { outputStream ->
-                output.compress(spec.format, spec.quality, outputStream)
+        var output: Bitmap? = null
+        try {
+            val translation = translationStore.load(imageFile)
+            output = if (translation != null && translation.bubbles.any { it.text.isNotBlank() }) {
+                renderer.render(bitmap, translation, verticalLayoutEnabled)
+            } else {
+                bitmap
             }
-        } catch (e: Exception) {
-            AppLogger.log("Library", "Write CBZ entry failed: ${imageFile.name}", e)
-            false
+            val spec = resolveExportSpec(imageFile.name)
+            val entryName = "$prefix/${spec.displayName}"
+            val tempFile = File(tempDir, "entry_$index")
+            val success = try {
+                FileOutputStream(tempFile).use { outputStream ->
+                    output.compress(spec.format, spec.quality, outputStream)
+                }
+            } catch (e: Exception) {
+                AppLogger.log("Library", "Write CBZ entry failed: ${imageFile.name}", e)
+                false
+            }
+            if (!success) return null
+            return PreparedCbzEntry(index = index, entryName = entryName, tempFile = tempFile)
         } finally {
-            if (output !== bitmap) {
+            if (output != null && output !== bitmap) {
                 output.recycle()
             }
             bitmap.recycle()
         }
-        if (!success) return null
-        return PreparedCbzEntry(index = index, entryName = entryName, tempFile = tempFile)
     }
 
     private fun resolveExportDirectory(
@@ -1492,29 +1495,32 @@ internal class LibraryExporter(
     ): PreparedCbzEntry? {
         val renderer = BubbleRenderer(context)
         val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return null
-        val translation = translationStore.load(imageFile)
-        val output = if (translation != null && translation.bubbles.any { it.text.isNotBlank() }) {
-            renderer.render(bitmap, translation, verticalLayoutEnabled)
-        } else {
-            bitmap
-        }
-        val spec = resolveExportSpec(imageFile.name)
-        val tempFile = File(tempDir, "entry_$index")
-        val success = try {
-            FileOutputStream(tempFile).use { outputStream ->
-                output.compress(spec.format, spec.quality, outputStream)
+        var output: Bitmap? = null
+        try {
+            val translation = translationStore.load(imageFile)
+            output = if (translation != null && translation.bubbles.any { it.text.isNotBlank() }) {
+                renderer.render(bitmap, translation, verticalLayoutEnabled)
+            } else {
+                bitmap
             }
-        } catch (e: Exception) {
-            AppLogger.log("Library", "Write CBZ entry failed: ${imageFile.name}", e)
-            false
+            val spec = resolveExportSpec(imageFile.name)
+            val tempFile = File(tempDir, "entry_$index")
+            val success = try {
+                FileOutputStream(tempFile).use { outputStream ->
+                    output.compress(spec.format, spec.quality, outputStream)
+                }
+            } catch (e: Exception) {
+                AppLogger.log("Library", "Write CBZ entry failed: ${imageFile.name}", e)
+                false
+            }
+            if (!success) return null
+            return PreparedCbzEntry(index = index, entryName = spec.displayName, tempFile = tempFile)
         } finally {
-            if (output !== bitmap) {
+            if (output != null && output !== bitmap) {
                 output.recycle()
             }
             bitmap.recycle()
         }
-        if (!success) return null
-        return PreparedCbzEntry(index = index, entryName = spec.displayName, tempFile = tempFile)
     }
 
     private fun cleanupPreparedCbzEntries(entries: List<PreparedCbzEntry>) {
