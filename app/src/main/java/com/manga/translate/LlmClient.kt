@@ -19,6 +19,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.SocketTimeoutException
 import java.net.URLEncoder
+import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -29,10 +30,14 @@ class LlmClient(
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
 ) {
     private val appContext = context.applicationContext
-    private val promptCache = mutableMapOf<String, LlmPromptConfig>()
+    private val promptCache = ConcurrentHashMap<String, LlmPromptConfig>()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val baseHttpClient = OkHttpClient()
-    private val httpClientCache = ConcurrentHashMap<Int, OkHttpClient>()
+    private val httpClientCache = object : LinkedHashMap<Int, OkHttpClient>(MAX_CACHED_HTTP_CLIENTS, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, OkHttpClient>?): Boolean {
+            return size > MAX_CACHED_HTTP_CLIENTS
+        }
+    }
 
     fun isConfigured(apiSettings: ApiSettings? = null): Boolean {
         return (apiSettings ?: settingsStore.load()).isValid()
@@ -1358,15 +1363,21 @@ class LlmClient(
         return requestBuilder.build()
     }
 
-    private suspend fun executeRequest(request: Request, timeoutMs: Int): Response {
-        val client = httpClientCache.getOrPut(timeoutMs) {
-            baseHttpClient.newBuilder()
-                .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .callTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .build()
+    private fun getOrBuildClient(timeoutMs: Int): OkHttpClient {
+        return synchronized(httpClientCache) {
+            httpClientCache.getOrPut(timeoutMs) {
+                baseHttpClient.newBuilder()
+                    .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .callTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .build()
+            }
         }
+    }
+
+    private suspend fun executeRequest(request: Request, timeoutMs: Int): Response {
+        val client = getOrBuildClient(timeoutMs)
         return executeCallCancellable(client.newCall(request))
     }
 
@@ -1498,6 +1509,7 @@ class LlmClient(
         private const val DEFAULT_IMAGE_TRANSLATION_USER_PROMPT =
             "Translate only the text visible in this manga bubble into Simplified Chinese. Output only the translated text."
         private const val RETRY_COUNT = 3
+        private const val MAX_CACHED_HTTP_CLIENTS = 4
         private const val RETRY_BASE_DELAY_MS = 750
         private const val RETRY_MAX_DELAY_MS = 4_000
         private const val CONFIGURED_RETRY_DELAY_MS = 3_000

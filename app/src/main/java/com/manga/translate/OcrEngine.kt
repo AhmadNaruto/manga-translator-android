@@ -1,15 +1,17 @@
 package com.manga.translate
 
 import android.graphics.Bitmap
+import android.graphics.RectF
 
-/**
- * OCR引擎接口，统一不同语言的OCR实现
- */
 interface OcrEngine {
-    /**
-     * 识别图像中的文字
-     * @param bitmap 待识别的图像
-     * @return 识别出的文字
-     */
     fun recognize(bitmap: Bitmap): String
+
+    fun recognizeWithScore(bitmap: Bitmap, rect: RectF? = null): OcrEngineResult {
+        return OcrEngineResult(recognize(bitmap), 1.0f)
+    }
+
+    data class OcrEngineResult(
+        val text: String,
+        val score: Float
+    )
 }

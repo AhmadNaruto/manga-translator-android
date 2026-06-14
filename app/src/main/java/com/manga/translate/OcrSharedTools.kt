@@ -94,7 +94,11 @@ class OcrEngineRegistry(
 
     suspend fun borrowJa(logTag: String): MangaOcrMobile? {
         val pool = synchronized(this) { if (!jaPoolClosed) jaPool else null } ?: return null
-        val engine = pool.receive()
+        val engine = try {
+            pool.receive()
+        } catch (_: Exception) {
+            null
+        } ?: return null
         if (jaPoolClosed) {
             engine.close()
             return null
@@ -109,7 +113,10 @@ class OcrEngineRegistry(
         if (jaPoolClosed || pool == null) {
             engine.close()
         } else {
-            pool.trySend(engine)
+            val sent = pool.trySend(engine)
+            if (sent.isFailure) {
+                engine.close()
+            }
         }
     }
 
@@ -401,7 +408,7 @@ inline fun <T> withBitmapCrop(
 fun recognizeEnglishLines(
     source: Bitmap,
     lineRects: List<RectF>,
-    ocrEngine: EnglishOcr,
+    ocrEngine: OcrEngine,
     minLineScore: Float = DEFAULT_EN_MIN_LINE_SCORE
 ): List<EnglishLine> {
     if (lineRects.isEmpty()) return emptyList()
@@ -419,7 +426,7 @@ fun recognizeEnglishLines(
 fun recognizeKoreanLines(
     source: Bitmap,
     lineRects: List<RectF>,
-    ocrEngine: KoreanOcr,
+    ocrEngine: OcrEngine,
     minLineScore: Float = DEFAULT_KO_MIN_LINE_SCORE
 ): List<EnglishLine> {
     if (lineRects.isEmpty()) return emptyList()

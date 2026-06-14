@@ -503,9 +503,11 @@ internal class TranslationPipeline(
 
     fun saveResult(imageFile: File, result: TranslationResult): File {
         val saved = store.save(imageFile, result)
-        val ocrFile = ocrStore.ocrFileFor(imageFile)
-        if (ocrFile.exists()) {
-            ocrFile.delete()
+        if (result.metadata.status == PageTranslationStatus.SUCCESS) {
+            val ocrFile = ocrStore.ocrFileFor(imageFile)
+            if (ocrFile.exists()) {
+                ocrFile.delete()
+            }
         }
         return saved
     }
