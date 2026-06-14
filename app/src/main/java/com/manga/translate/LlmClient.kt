@@ -396,7 +396,7 @@ class LlmClient(
         return buildOpenAiCompatibleChatEndpoint(baseUrl)
     }
 
-    private fun buildOpenAiModelsEndpoint(baseUrl: String): String? {
+    private fun buildOpenAiModelsEndpoint(baseUrl: String): String {
         return buildOpenAiCompatibleModelsEndpoint(baseUrl)
     }
 
@@ -1086,7 +1086,6 @@ class LlmClient(
         }
         val endpoint = when (apiFormat) {
             ApiFormat.OPENAI_COMPATIBLE -> buildOpenAiModelsEndpoint(apiUrl)
-                ?: throw LlmRequestException(LlmErrorCode.ModelListUnsupported)
             ApiFormat.GEMINI -> buildGeminiModelsEndpoint(apiUrl, apiKey)
         }
         val timeoutMs = settingsStore.loadApiTimeoutMs()
@@ -1516,10 +1515,10 @@ class LlmClient(
             }
         }
 
-        internal fun buildOpenAiCompatibleModelsEndpoint(baseUrl: String): String? {
+        internal fun buildOpenAiCompatibleModelsEndpoint(baseUrl: String): String {
             val trimmed = normalizeOpenAiCompatibleBaseUrl(baseUrl)
             return when {
-                isBigModelOpenAiCompatibleBaseUrl(trimmed) -> null
+                isBigModelOpenAiCompatibleBaseUrl(trimmed) -> "$trimmed/models"
                 trimmed.endsWith("/v1") -> "$trimmed/models"
                 else -> "$trimmed/v1/models"
             }

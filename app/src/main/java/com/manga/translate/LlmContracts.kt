@@ -19,7 +19,6 @@ sealed class LlmErrorCode(val value: String) {
     data object ImageEncodeFailed : LlmErrorCode("IMAGE_ENCODE_FAILED")
     data object EmptyTranslationSegment : LlmErrorCode("EMPTY_TRANSLATION_SEGMENT")
     data object VlModelRequired : LlmErrorCode("VL_MODEL_REQUIRED")
-    data object ModelListUnsupported : LlmErrorCode("MODEL_LIST_UNSUPPORTED")
     data class Http(val status: Int) : LlmErrorCode("HTTP $status")
     data class Custom(private val raw: String) : LlmErrorCode(raw)
 
@@ -41,7 +40,6 @@ sealed class LlmErrorCode(val value: String) {
                 ImageEncodeFailed.value -> ImageEncodeFailed
                 EmptyTranslationSegment.value -> EmptyTranslationSegment
                 VlModelRequired.value -> VlModelRequired
-                ModelListUnsupported.value -> ModelListUnsupported
                 else -> {
                     raw.removePrefix("HTTP ").toIntOrNull()?.let { Http(it) } ?: Custom(raw)
                 }

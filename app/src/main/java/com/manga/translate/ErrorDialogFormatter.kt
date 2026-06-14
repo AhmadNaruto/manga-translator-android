@@ -17,7 +17,6 @@ internal object ErrorDialogFormatter {
                 LlmErrorCode.MissingUrl.value -> context.getString(R.string.api_request_error_missing_url)
                 LlmErrorCode.MissingTranslateApiSettings.value -> context.getString(R.string.missing_translate_api_settings)
                 LlmErrorCode.EmptyResponse.value -> context.getString(R.string.api_request_error_empty_response)
-                LlmErrorCode.ModelListUnsupported.value -> context.getString(R.string.api_request_error_model_list_unsupported)
                 LlmErrorCode.CustomParamConflict.value -> context.getString(
                     R.string.custom_request_params_conflict_error,
                     detail.orEmpty()
