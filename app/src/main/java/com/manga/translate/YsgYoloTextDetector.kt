@@ -38,8 +38,12 @@ class YsgYoloTextDetector(
         val input = session.inputInfo.entries.first()
         inputName = input.key
         val shape = (input.value.info as TensorInfo).shape
-        inputHeight = (shape.getOrNull(2) ?: 640L).toInt().coerceAtLeast(1)
-        inputWidth = (shape.getOrNull(3) ?: 640L).toInt().coerceAtLeast(1)
+        inputHeight = (shape.getOrNull(2) ?: TranslationCoreDefaults.DefaultDetectionInputSize.toLong())
+            .toInt()
+            .coerceAtLeast(1)
+        inputWidth = (shape.getOrNull(3) ?: TranslationCoreDefaults.DefaultDetectionInputSize.toLong())
+            .toInt()
+            .coerceAtLeast(1)
     }
 
     fun detect(
@@ -344,8 +348,8 @@ class YsgYoloTextDetector(
     )
 
     companion object {
-        const val DEFAULT_CONF_THRESHOLD = 0.4f
-        const val DEFAULT_NMS_IOU_THRESHOLD = 0.6f
+        const val DEFAULT_CONF_THRESHOLD = TranslationCoreDefaults.TextDetectorConfThreshold
+        const val DEFAULT_NMS_IOU_THRESHOLD = TranslationCoreDefaults.TextDetectorModelDefaultNmsIouThreshold
         private const val MIN_AABB_SIZE = 2f
     }
 }

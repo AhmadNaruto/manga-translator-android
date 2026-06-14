@@ -31,7 +31,7 @@ internal class ReadingEmptyBubbleCoordinator(
         if (!settingsStore.load().isValid()) {
             AppLogger.log("Reading", "Missing translate API settings for empty bubble translation")
             throw LlmRequestException(
-                "MISSING_TRANSLATE_API_SETTINGS",
+                LlmErrorCode.MissingTranslateApiSettings,
                 appContext.getString(R.string.missing_translate_api_settings)
             )
         }
@@ -145,7 +145,7 @@ internal class ReadingEmptyBubbleCoordinator(
             language = language,
             useLocalOcr = useLocalOcr,
             logTag = "Reading"
-        )
+        ).textOrEmpty()
     }
 }
 

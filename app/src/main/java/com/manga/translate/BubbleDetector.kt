@@ -45,8 +45,10 @@ class BubbleDetector(
 
     fun detect(bitmap: android.graphics.Bitmap): List<BubbleDetection> {
         // Use fixed dim when positive; treat 0 or -1 (dynamic ONNX dim) as 640.
-        val inputHeight = inputShape.getOrNull(2)?.takeIf { it > 0 }?.toInt() ?: 640
-        val inputWidth = inputShape.getOrNull(3)?.takeIf { it > 0 }?.toInt() ?: 640
+        val inputHeight = inputShape.getOrNull(2)?.takeIf { it > 0 }?.toInt()
+            ?: TranslationCoreDefaults.DefaultDetectionInputSize
+        val inputWidth = inputShape.getOrNull(3)?.takeIf { it > 0 }?.toInt()
+            ?: TranslationCoreDefaults.DefaultDetectionInputSize
         val pre = preprocess(bitmap, inputWidth, inputHeight)
 
         val shape = longArrayOf(1, 3, inputHeight.toLong(), inputWidth.toLong())
@@ -83,7 +85,7 @@ class BubbleDetector(
                     )
                 }
                 val filtered = filterByNms(
-                    rawDetections, confThreshold, 0.5f,
+                    rawDetections, confThreshold, TranslationCoreDefaults.BubbleDetectorNmsIouThreshold,
                     pre, bitmap.width, bitmap.height
                 )
                 val result = filtered.map { raw ->

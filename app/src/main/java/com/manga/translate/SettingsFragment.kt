@@ -1846,6 +1846,10 @@ class SettingsFragment : Fragment() {
             .show()
     }
 
+    private fun showModelFetchError(code: LlmErrorCode, detail: String? = null) {
+        showModelFetchError(code.value, detail)
+    }
+
     private fun showModelFetchError(code: String, detail: String? = null) {
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.fetch_models_failed_title)

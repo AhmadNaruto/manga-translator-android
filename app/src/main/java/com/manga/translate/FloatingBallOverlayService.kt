@@ -224,7 +224,7 @@ class FloatingBallOverlayService : Service() {
             language = language,
             useLocalOcr = ocrSettings.useLocalOcr,
             logTag = "FloatingOCR"
-        )
+        ).textOrEmpty()
     }
 
     private fun canDrawOverlays(): Boolean {
@@ -1297,6 +1297,10 @@ class FloatingBallOverlayService : Service() {
             }
         }
         blankBubbleErrorDialog = dialog
+    }
+
+    private fun showApiErrorDialog(errorCode: LlmErrorCode, detail: String?) {
+        showApiErrorDialog(errorCode.value, detail)
     }
 
     private fun showApiErrorDialog(

@@ -230,6 +230,10 @@ internal class LibraryDialogs {
         }
     }
 
+    fun showApiErrorDialog(context: Context, errorCode: LlmErrorCode, detail: String? = null) {
+        showApiErrorDialog(context, errorCode.value, detail)
+    }
+
     fun showApiErrorDialog(context: Context, errorCode: String, detail: String? = null) {
         showMessageDialog(
             context,

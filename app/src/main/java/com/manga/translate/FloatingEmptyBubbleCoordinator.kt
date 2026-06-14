@@ -8,7 +8,7 @@ import kotlinx.coroutines.withContext
 
 class FloatingEmptyBubbleCoordinator(
     context: Context,
-    private val llmClient: LlmClient,
+    private val llmClient: LlmGateway,
     private val floatingTranslationCacheStore: FloatingTranslationCacheStore,
     private val settingsStore: SettingsStore,
     private val bubbleTextRecognizer: BubbleTextRecognizer
@@ -133,7 +133,7 @@ class FloatingEmptyBubbleCoordinator(
             language = language,
             useLocalOcr = useLocalOcr,
             logTag = "FloatingOCR"
-        )
+        ).textOrEmpty()
     }
 
     private suspend fun translateBubbleImages(

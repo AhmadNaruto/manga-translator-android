@@ -1,7 +1,7 @@
 package com.manga.translate
 
 internal class TextBubbleTranslationCoordinator(
-    private val llmClient: LlmClient
+    private val llmClient: LlmGateway
 ) {
 
     suspend fun translateBubbles(

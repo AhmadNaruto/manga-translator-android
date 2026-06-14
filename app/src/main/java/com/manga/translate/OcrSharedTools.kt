@@ -150,7 +150,7 @@ class OcrEngineRegistry(
 }
 
 class BubbleTextRecognizer(
-    private val llmClient: LlmClient,
+    private val llmClient: LlmGateway,
     private val engineRegistry: OcrEngineRegistry,
     private val settingsStore: SettingsStore
 ) {
@@ -197,8 +197,9 @@ class BubbleTextRecognizer(
         language: TranslationLanguage,
         useLocalOcr: Boolean,
         logTag: String
-    ): String {
-        val crop = cropBitmap(source, rect)?.let { PipelineBitmapDecoder.scaleDownIfNeeded(it) } ?: return ""
+    ): OcrRecognitionResult {
+        val crop = cropBitmap(source, rect)?.let { PipelineBitmapDecoder.scaleDownIfNeeded(it) }
+            ?: return OcrRecognitionResult.Success("")
         return try {
             recognizeCrop(crop, language, useLocalOcr, logTag)
         } finally {
@@ -212,9 +213,10 @@ class BubbleTextRecognizer(
         language: TranslationLanguage,
         useLocalOcr: Boolean,
         logTag: String
-    ): String {
-        val clamped = PipelineBitmapDecoder.clampRect(rect, cropSource.width, cropSource.height) ?: return ""
-        val crop = cropSource.decodeRegion(clamped) ?: return ""
+    ): OcrRecognitionResult {
+        val clamped = PipelineBitmapDecoder.clampRect(rect, cropSource.width, cropSource.height)
+            ?: return OcrRecognitionResult.Success("")
+        val crop = cropSource.decodeRegion(clamped) ?: return OcrRecognitionResult.Success("")
         return try {
             recognizeCrop(crop, language, useLocalOcr, logTag)
         } finally {
@@ -227,26 +229,32 @@ class BubbleTextRecognizer(
         language: TranslationLanguage,
         useLocalOcr: Boolean,
         logTag: String
-    ): String {
+    ): OcrRecognitionResult {
         val rawText = if (!useLocalOcr) {
             try {
                 llmClient.recognizeImageText(crop)?.trim().orEmpty()
             } catch (e: Exception) {
                 AppLogger.log(logTag, "API OCR failed", e)
-                ""
+                return OcrRecognitionResult.Failure(e)
             }
         } else when (language) {
             TranslationLanguage.JA_TO_ZH -> {
                 when (settingsStore.loadOcrApiSettings().japaneseLocalOcrEngine) {
                     JapaneseLocalOcrEngine.MANGA_OCR_MOBILE -> {
-                        val engine = engineRegistry.getMangaOcrMobile(logTag) ?: return ""
+                        val engine = engineRegistry.getMangaOcrMobile(logTag)
+                            ?: return OcrRecognitionResult.Failure(
+                                IllegalStateException("Japanese OCR engine unavailable")
+                            )
                         engine.recognize(crop).trim()
                     }
                 }
             }
 
             TranslationLanguage.EN_TO_ZH -> {
-                val engine = engineRegistry.getEnglishOcr(logTag) ?: return ""
+                val engine = engineRegistry.getEnglishOcr(logTag)
+                    ?: return OcrRecognitionResult.Failure(
+                        IllegalStateException("English OCR engine unavailable")
+                    )
                 val lineDetector = engineRegistry.getEnglishLineDetector(logTag)
                 val lineRects = lineDetector?.detectLines(crop).orEmpty()
                 val lines = recognizeEnglishLines(crop, lineRects, engine)
@@ -258,7 +266,10 @@ class BubbleTextRecognizer(
             }
 
             TranslationLanguage.KO_TO_ZH -> {
-                val engine = engineRegistry.getKoreanOcr(logTag) ?: return ""
+                val engine = engineRegistry.getKoreanOcr(logTag)
+                    ?: return OcrRecognitionResult.Failure(
+                        IllegalStateException("Korean OCR engine unavailable")
+                    )
                 val lineDetector = engineRegistry.getEnglishLineDetector(logTag)
                 val lineRects = lineDetector?.detectLines(crop).orEmpty()
                 val lines = recognizeKoreanLines(crop, lineRects, engine)
@@ -272,7 +283,7 @@ class BubbleTextRecognizer(
                 }
             }
         }
-        return OcrTextSanitizer.sanitize(rawText, language, logTag)
+        return OcrRecognitionResult.Success(OcrTextSanitizer.sanitize(rawText, language, logTag))
     }
 
     internal suspend fun sanitizeJaCrop(

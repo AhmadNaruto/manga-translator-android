@@ -434,7 +434,7 @@ internal class FolderTranslationCoordinator(
             } catch (e: LlmRequestException) {
                 failed = true
                 AppLogger.log("Library", "Translation aborted for folder ${folder.name}", e)
-                ui.showApiError(e.errorCode, e.responseBody)
+                ui.showApiError(e.errorCode.value, e.responseBody)
                 ui.setFolderStatus(appContext.getString(R.string.translation_failed))
                 GlobalTaskProgressStore.fail(
                     appContext.getString(R.string.translation_keepalive_title),
@@ -648,7 +648,7 @@ internal class FolderTranslationCoordinator(
                 ui.refreshImages(folder)
             } catch (e: LlmRequestException) {
                 AppLogger.log("Library", "Full-page translation aborted", e)
-                ui.showApiError(e.errorCode, e.responseBody)
+                ui.showApiError(e.errorCode.value, e.responseBody)
                 ui.setFolderStatus(appContext.getString(R.string.translation_failed))
                 GlobalTaskProgressStore.fail(
                     appContext.getString(R.string.translation_keepalive_title),
@@ -729,7 +729,7 @@ internal class FolderTranslationCoordinator(
             if (failed) CollectionTaskResult.FAILED else CollectionTaskResult.SUCCESS
         } catch (e: LlmRequestException) {
             AppLogger.log("Library", "Collection translation aborted for ${task.folder.name}", e)
-            ui.showApiError(e.errorCode, e.responseBody)
+            ui.showApiError(e.errorCode.value, e.responseBody)
             CollectionTaskResult.ABORTED
         }
     }
@@ -802,7 +802,7 @@ internal class FolderTranslationCoordinator(
                     break
                 } catch (e: LlmRequestException) {
                     AppLogger.log("Library", "Collection glossary extraction aborted", e)
-                    ui.showApiError(e.errorCode, e.responseBody)
+                    ui.showApiError(e.errorCode.value, e.responseBody)
                     return CollectionTaskResult.ABORTED
                 } catch (e: LlmResponseException) {
                     AppLogger.log("Library", "Collection glossary response invalid", e)
@@ -843,7 +843,7 @@ internal class FolderTranslationCoordinator(
             if (failed) CollectionTaskResult.FAILED else CollectionTaskResult.SUCCESS
         } catch (e: LlmRequestException) {
             AppLogger.log("Library", "Collection full translation aborted for ${task.folder.name}", e)
-            ui.showApiError(e.errorCode, e.responseBody)
+            ui.showApiError(e.errorCode.value, e.responseBody)
             CollectionTaskResult.ABORTED
         }
     }
@@ -1249,7 +1249,7 @@ internal class FolderTranslationCoordinator(
     ): PageTranslationExecutionResult {
         val orderedProviders = scheduler.orderedCandidatesForPage()
         if (orderedProviders.isEmpty()) {
-            throw LlmRequestException("MISSING_API_SETTINGS", "No configured translation provider")
+            throw LlmRequestException(LlmErrorCode.MissingApiSettings, "No configured translation provider")
         }
         if (!force) {
             tryRefillPartial(
@@ -1359,7 +1359,7 @@ internal class FolderTranslationCoordinator(
     ): PageTranslationExecutionResult {
         val orderedProviders = scheduler.orderedCandidatesForPage()
         if (orderedProviders.isEmpty()) {
-            throw LlmRequestException("MISSING_API_SETTINGS", "No configured translation provider")
+            throw LlmRequestException(LlmErrorCode.MissingApiSettings, "No configured translation provider")
         }
         tryRefillPartial(
             folder = folder,
@@ -1441,11 +1441,11 @@ internal class FolderTranslationCoordinator(
         return when {
             outcome.requiresVlModel -> {
                 ui.showToast(R.string.folder_vl_model_required)
-                throw LlmRequestException("VL_MODEL_REQUIRED", image.name)
+                throw LlmRequestException(LlmErrorCode.VlModelRequired, image.name)
             }
             outcome.timedOut -> {
                 ui.showToast(R.string.floating_translate_timeout)
-                throw LlmRequestException("TIMEOUT", image.name)
+                throw LlmRequestException(LlmErrorCode.Timeout, image.name)
             }
             outcome.result != null -> {
                 PageTranslationExecutionResult(result = outcome.result)

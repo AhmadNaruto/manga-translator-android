@@ -630,14 +630,14 @@ internal class PageRegionDetector(
     }
 
     companion object {
-        private const val TEXT_IOU_THRESHOLD = 0.2f
-        private const val MASK_EXPAND_RATIO = 0.1f
-        private const val MASK_EXPAND_MIN = 4f
-        private const val TINY_BUBBLE_SHORT_SIDE_MIN_PX = 26f
-        private const val TINY_BUBBLE_LONG_SIDE_MIN_PX = 56f
-        private const val TINY_BUBBLE_SHORT_SIDE_RATIO = 0.032f
-        private const val TINY_BUBBLE_LONG_SIDE_RATIO = 0.075f
-        private const val TINY_BUBBLE_MAX_AREA_RATIO = 0.0022f
+        private const val TEXT_IOU_THRESHOLD = TranslationCoreDefaults.PageRegionTextIouThreshold
+        private const val MASK_EXPAND_RATIO = TranslationCoreDefaults.PageRegionMaskExpandRatio
+        private const val MASK_EXPAND_MIN = TranslationCoreDefaults.PageRegionMaskExpandMin
+        private const val TINY_BUBBLE_SHORT_SIDE_MIN_PX = TranslationCoreDefaults.TinyBubbleShortSideMinPx
+        private const val TINY_BUBBLE_LONG_SIDE_MIN_PX = TranslationCoreDefaults.TinyBubbleLongSideMinPx
+        private const val TINY_BUBBLE_SHORT_SIDE_RATIO = TranslationCoreDefaults.TinyBubbleShortSideRatio
+        private const val TINY_BUBBLE_LONG_SIDE_RATIO = TranslationCoreDefaults.TinyBubbleLongSideRatio
+        private const val TINY_BUBBLE_MAX_AREA_RATIO = TranslationCoreDefaults.TinyBubbleMaxAreaRatio
     }
 }
 
@@ -694,7 +694,7 @@ private const val LONG_IMAGE_TILE_MAX_HEIGHT_PX = 2800
 private const val LONG_IMAGE_TILE_OVERLAP_RATIO = 0.18f
 private const val LONG_IMAGE_TILE_OVERLAP_MIN_PX = 240
 private const val LONG_IMAGE_REGION_SCREEN_HEIGHT_RATIO = 0.85f
-private const val BUBBLE_DEDUP_IOU_THRESHOLD = 0.65f
+private const val BUBBLE_DEDUP_IOU_THRESHOLD = TranslationCoreDefaults.BubbleDedupIouThreshold
 private const val BUBBLE_DEDUP_CONTAINMENT_THRESHOLD = 0.9f
 private const val BUBBLE_DEDUP_PARTIAL_OVERLAP_MIN_RATIO = 0.58f
 private const val BUBBLE_DEDUP_AXIS_OVERLAP_MIN_RATIO = 0.55f

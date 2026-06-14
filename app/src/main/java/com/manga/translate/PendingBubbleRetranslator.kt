@@ -37,7 +37,7 @@ internal class PendingBubbleRetranslator(
         if (!settingsStore.load().isValid()) {
             AppLogger.log(logTag, "Refill skipped: missing translate API settings")
             throw LlmRequestException(
-                "MISSING_TRANSLATE_API_SETTINGS",
+                LlmErrorCode.MissingTranslateApiSettings,
                 appContext.getString(R.string.missing_translate_api_settings)
             )
         }
@@ -63,7 +63,7 @@ internal class PendingBubbleRetranslator(
                             language = language,
                             useLocalOcr = useLocalOcr,
                             logTag = logTag
-                        ).trim()
+                        ).textOrEmpty().trim()
                     } finally {
                         crop.recycleSafely()
                     }

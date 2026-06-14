@@ -21,7 +21,9 @@ object PromptAssetResolver {
     }
 
     fun isTraditionalChinese(context: Context): Boolean {
-        val locale = context.resources.configuration.locales[0] ?: Locale.getDefault()
+        val locale = runCatching {
+            context.resources.configuration.locales[0]
+        }.getOrNull() ?: Locale.getDefault()
         if (!locale.language.equals(Locale.CHINESE.language, ignoreCase = true)) return false
         val script = locale.script.orEmpty()
         if (script.equals("Hant", ignoreCase = true)) return true

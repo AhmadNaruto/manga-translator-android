@@ -14,7 +14,7 @@ import java.io.File
 
 internal class TranslationPipeline(
     context: Context,
-    private val llmClient: LlmClient = LlmClient(context.applicationContext),
+    private val llmClient: LlmGateway = LlmClient(context.applicationContext),
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext),
     private val store: TranslationStore = TranslationStore(),
     private val ocrStore: OcrStore = OcrStore(),
@@ -210,7 +210,9 @@ internal class TranslationPipeline(
                                 }
                             } else {
                                 try {
-                                    bubbleTextRecognizer.recognizeCrop(crop, language, useLocalOcr = true, logTag = "Pipeline")
+                                    bubbleTextRecognizer
+                                        .recognizeCrop(crop, language, useLocalOcr = true, logTag = "Pipeline")
+                                        .textOrEmpty()
                                 } finally {
                                     crop.recycleSafely()
                                 }
@@ -596,7 +598,13 @@ internal class TranslationPipeline(
         val clamped = PipelineBitmapDecoder.clampRect(rect, cropSource.width, cropSource.height) ?: return ""
         val crop = cropSource.decodeRegion(clamped) ?: return ""
         return try {
-            bubbleTextRecognizer.recognizeCrop(crop, language, useLocalOcr, logTag)
+            when (val result = bubbleTextRecognizer.recognizeCrop(crop, language, useLocalOcr, logTag)) {
+                is OcrRecognitionResult.Success -> result.text
+                is OcrRecognitionResult.Failure -> {
+                    AppLogger.log(logTag, "OCR failed for region", result.error)
+                    ""
+                }
+            }
         } finally {
             crop.recycleSafely()
         }
@@ -604,7 +612,10 @@ internal class TranslationPipeline(
 
     private fun expandVlBubbleRect(rect: RectF, bitmapWidth: Int, bitmapHeight: Int): RectF {
         val h = maxOf(1f, rect.height())
-        val pad = maxOf(VL_BUBBLE_EXPAND_MIN, VL_BUBBLE_EXPAND_RATIO * h)
+            val pad = maxOf(
+                TranslationCoreDefaults.VlBubbleExpandMin,
+                TranslationCoreDefaults.VlBubbleExpandRatio * h
+            )
         return RectF(
             (rect.left - pad).coerceIn(0f, bitmapWidth.toFloat()),
             (rect.top - pad).coerceIn(0f, bitmapHeight.toFloat()),
@@ -618,8 +629,6 @@ internal class TranslationPipeline(
         private const val FULL_TRANS_PROMPT_ASSET = "prompts/llm_prompts_FullTrans.json"
         private const val VL_PROMPT_ASSET = "prompts/vl_bubble_prompts.json"
         private const val MODEL_RESPONSE_SILENT_RETRY_COUNT = 3
-        private const val VL_BUBBLE_EXPAND_RATIO = 0.1f
-        private const val VL_BUBBLE_EXPAND_MIN = 4f
     }
 
     private fun buildExpectedTranslationMetadata(

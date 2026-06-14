@@ -19,10 +19,17 @@ class TextDetector(
         val detections = detector.detect(
             bitmap = bitmap,
             suppressionMasks = suppressionMasks,
-            confThreshold = YSG_CONF_THRESHOLD,
-            iouThreshold = YSG_NMS_IOU_THRESHOLD
+            confThreshold = TranslationCoreDefaults.TextDetectorConfThreshold,
+            iouThreshold = TranslationCoreDefaults.TextDetectorNmsIouThreshold
         )
-        val expanded = detections.map { expandRect(it.aabb, OUTPUT_EXPAND_RATIO, OUTPUT_EXPAND_MIN, bitmap) }
+        val expanded = detections.map {
+            expandRect(
+                it.aabb,
+                TranslationCoreDefaults.TextDetectorOutputExpandRatio,
+                TranslationCoreDefaults.TextDetectorOutputExpandMin,
+                bitmap
+            )
+        }
         if (settingsStore.loadModelIoLogging()) {
             AppLogger.log(
                 "TextDetector",
@@ -48,13 +55,6 @@ class TextDetector(
             "(${rect.left.toInt()},${rect.top.toInt()},${rect.right.toInt()},${rect.bottom.toInt()})"
         }
         return if (rects.size > limit) "$preview..." else preview
-    }
-
-    companion object {
-        private const val YSG_CONF_THRESHOLD = 0.4f
-        private const val YSG_NMS_IOU_THRESHOLD = 0.5f
-        private const val OUTPUT_EXPAND_RATIO = 0.08f
-        private const val OUTPUT_EXPAND_MIN = 1.0f
     }
 }
 

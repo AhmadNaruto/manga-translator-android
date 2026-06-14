@@ -31,8 +31,12 @@ class EnglishLineDetector(
         val input = session.inputInfo.entries.first()
         inputName = input.key
         val shape = (input.value.info as TensorInfo).shape
-        inputHeight = (shape.getOrNull(2) ?: 960L).toInt().coerceAtLeast(1)
-        inputWidth = (shape.getOrNull(3) ?: 960L).toInt().coerceAtLeast(1)
+        inputHeight = (shape.getOrNull(2) ?: TranslationCoreDefaults.DefaultLineDetectionInputSize.toLong())
+            .toInt()
+            .coerceAtLeast(1)
+        inputWidth = (shape.getOrNull(3) ?: TranslationCoreDefaults.DefaultLineDetectionInputSize.toLong())
+            .toInt()
+            .coerceAtLeast(1)
     }
 
     fun detectLines(bitmap: Bitmap): List<RectF> {

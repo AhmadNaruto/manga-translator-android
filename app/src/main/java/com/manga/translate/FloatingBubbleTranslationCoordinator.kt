@@ -10,7 +10,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
 internal class FloatingBubbleTranslationCoordinator(
-    private val llmClient: LlmClient,
+    private val llmClient: LlmGateway,
     private val floatingTranslationCacheStore: FloatingTranslationCacheStore,
     private val settingsStore: SettingsStore
 ) {
@@ -37,7 +37,7 @@ internal class FloatingBubbleTranslationCoordinator(
         if (!llmClient.isConfigured(apiSettings)) {
             AppLogger.log(logTag, "Missing translate API settings")
             throw LlmRequestException(
-                "MISSING_TRANSLATE_API_SETTINGS"
+                LlmErrorCode.MissingTranslateApiSettings
             )
         }
 
@@ -105,7 +105,7 @@ internal class FloatingBubbleTranslationCoordinator(
             AppLogger.log(logTag, "Translate success segments=${translatedMap.size}")
             merged
         } catch (e: LlmRequestException) {
-            if (e.errorCode == "TIMEOUT") {
+            if (e.errorCode == LlmErrorCode.Timeout) {
                 AppLogger.log(logTag, "LLM translate timeout")
                 null
             } else {
@@ -161,7 +161,7 @@ internal class FloatingBubbleTranslationCoordinator(
                         crop.recycleSafely()
                         return@withPermit FloatingBubbleImageTranslateTaskResult(
                             responseException = LlmResponseException(
-                                errorCode = "IMAGE_ENCODE_FAILED",
+                                errorCode = LlmErrorCode.ImageEncodeFailed,
                                 responseContent = "Failed to encode bubble crop as JPEG"
                             )
                         )
@@ -175,7 +175,7 @@ internal class FloatingBubbleTranslationCoordinator(
                             apiSettings = apiSettings
                         ).orEmpty()
                     } catch (e: LlmRequestException) {
-                        if (e.errorCode == "TIMEOUT") {
+                        if (e.errorCode == LlmErrorCode.Timeout) {
                             AppLogger.log(logTag, "VL direct translate timeout")
                             return@withPermit FloatingBubbleImageTranslateTaskResult(timedOut = true)
                         }
@@ -200,7 +200,7 @@ internal class FloatingBubbleTranslationCoordinator(
                     if (translatedText.isBlank()) {
                         return@withPermit FloatingBubbleImageTranslateTaskResult(
                             responseException = LlmResponseException(
-                                errorCode = "EMPTY_TRANSLATION_SEGMENT",
+                                errorCode = LlmErrorCode.EmptyTranslationSegment,
                                 responseContent = buildBlankModelResponseMessage(
                                     context = appContext,
                                     bubbleCount = 1,
@@ -230,7 +230,6 @@ internal class FloatingBubbleTranslationCoordinator(
 
     fun looksLikeVisionModelError(error: LlmRequestException): Boolean {
         val body = error.responseBody.orEmpty().lowercase()
-        val code = error.errorCode.lowercase()
         val hints = listOf(
             "image",
             "vision",
@@ -241,7 +240,7 @@ internal class FloatingBubbleTranslationCoordinator(
             "does not support image",
             "unsupported content type"
         )
-        return code.startsWith("http") && hints.any { it in body }
+        return error.errorCode is LlmErrorCode.Http && hints.any { it in body }
     }
 }
 

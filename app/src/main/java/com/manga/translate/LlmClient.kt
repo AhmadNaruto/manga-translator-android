@@ -28,7 +28,7 @@ import kotlin.coroutines.resumeWithException
 class LlmClient(
     context: Context,
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
-) {
+) : LlmGateway {
     private val appContext = context.applicationContext
     private val promptCache = ConcurrentHashMap<String, LlmPromptConfig>()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -39,11 +39,11 @@ class LlmClient(
         }
     }
 
-    fun isConfigured(apiSettings: ApiSettings? = null): Boolean {
+    override fun isConfigured(apiSettings: ApiSettings?): Boolean {
         return (apiSettings ?: settingsStore.load()).isValid()
     }
 
-    fun isOcrConfigured(): Boolean {
+    override fun isOcrConfigured(): Boolean {
         return settingsStore.loadOcrApiSettings().isValid()
     }
 
@@ -69,13 +69,13 @@ class LlmClient(
             parseTranslationContent(content)
     }
 
-    suspend fun translateBubbleItems(
+    override suspend fun translateBubbleItems(
         items: List<LlmBubbleTranslationRequestItem>,
         glossary: Map<String, String>,
-        promptAsset: String = PROMPT_CONFIG_ASSET,
-        requestTimeoutMs: Int? = null,
-        retryCount: Int = RETRY_COUNT,
-        apiSettings: ApiSettings? = null
+        promptAsset: String,
+        requestTimeoutMs: Int?,
+        retryCount: Int,
+        apiSettings: ApiSettings?
     ): LlmBubbleTranslationResult? =
         withContext(Dispatchers.IO) {
             val content = requestContent(
@@ -92,7 +92,7 @@ class LlmClient(
             parseBubbleTranslationContent(content, items.map { it.id })
         }
 
-    suspend fun extractGlossary(
+    override suspend fun extractGlossary(
         text: String,
         glossary: Map<String, String>,
         promptAsset: String
@@ -109,7 +109,7 @@ class LlmClient(
         requestModelList(apiUrl, apiKey, apiFormat)
     }
 
-    suspend fun recognizeImageText(image: Bitmap): String? = withContext(Dispatchers.IO) {
+    override suspend fun recognizeImageText(image: Bitmap): String? = withContext(Dispatchers.IO) {
         val ocrSettings = settingsStore.loadOcrApiSettings()
         if (!ocrSettings.isValid() || ocrSettings.useLocalOcr) {
             return@withContext null
@@ -169,12 +169,12 @@ class LlmClient(
         null
     }
 
-    suspend fun translateImageBubble(
+    override suspend fun translateImageBubble(
         imageBase64: String,
         promptAsset: String,
-        requestTimeoutMs: Int? = null,
-        retryCount: Int = RETRY_COUNT,
-        apiSettings: ApiSettings? = null
+        requestTimeoutMs: Int?,
+        retryCount: Int,
+        apiSettings: ApiSettings?
     ): String? = withContext(Dispatchers.IO) {
         requestImageContent(
             imageBase64 = imageBase64,
@@ -247,7 +247,7 @@ class LlmClient(
                                 "Empty or invalid response content from ${redactEndpoint(endpoint)}"
                             )
                             lastResponseException = LlmResponseException(
-                                errorCode = "INVALID_RESPONSE",
+                                errorCode = LlmErrorCode.InvalidResponse,
                                 responseContent = body.ifBlank {
                                     appContext.getString(R.string.model_response_empty_content)
                                 }
@@ -260,13 +260,13 @@ class LlmClient(
                 }
             } catch (e: SocketTimeoutException) {
                 AppLogger.log("LlmClient", "Request timeout on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
-                lastErrorCode = "TIMEOUT"
+                lastErrorCode = LlmErrorCode.Timeout.value
                 null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 AppLogger.log("LlmClient", "Request failed on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
-                lastErrorCode = "NETWORK_ERROR"
+                lastErrorCode = LlmErrorCode.NetworkError.value
                 null
             }
             if (result != null || attempt == retries) {
@@ -285,7 +285,7 @@ class LlmClient(
                         "LlmClient",
                         "Request failed on ${redactEndpoint(endpoint)}: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
                     )
-                    throw LlmRequestException(lastErrorCode, lastErrorBody)
+                    throw LlmRequestException(LlmErrorCode.from(lastErrorCode), lastErrorBody)
                 }
                 return null
             }
@@ -345,7 +345,7 @@ class LlmClient(
                                 "Empty or invalid image response content from ${redactEndpoint(endpoint)}"
                             )
                             lastResponseException = LlmResponseException(
-                                errorCode = "INVALID_RESPONSE",
+                                errorCode = LlmErrorCode.InvalidResponse,
                                 responseContent = body.ifBlank {
                                     appContext.getString(R.string.model_response_empty_content)
                                 }
@@ -358,13 +358,13 @@ class LlmClient(
                 }
             } catch (e: SocketTimeoutException) {
                 AppLogger.log("LlmClient", "Request timeout on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
-                lastErrorCode = "TIMEOUT"
+                lastErrorCode = LlmErrorCode.Timeout.value
                 null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 AppLogger.log("LlmClient", "Request failed on ${redactEndpoint(endpoint)} (attempt $attempt)", e)
-                lastErrorCode = "NETWORK_ERROR"
+                lastErrorCode = LlmErrorCode.NetworkError.value
                 null
             }
             if (result != null || attempt == retries) {
@@ -383,7 +383,7 @@ class LlmClient(
                         "LlmClient",
                         "Request failed on ${redactEndpoint(endpoint)}: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
                     )
-                    throw LlmRequestException(lastErrorCode, lastErrorBody)
+                    throw LlmRequestException(LlmErrorCode.from(lastErrorCode), lastErrorBody)
                 }
                 return null
             }
@@ -596,7 +596,10 @@ class LlmClient(
     private fun buildImageOcrPayload(ocrSettings: OcrApiSettings, image: Bitmap): JSONObject {
         val config = getPromptConfig(OCR_PROMPT_CONFIG_ASSET)
         val imageBase64 = ImageEncodingUtils.encodeBitmapToBase64(image)
-            ?: throw LlmRequestException("IMAGE_ENCODE_FAILED", "Failed to encode OCR image as JPEG")
+            ?: throw LlmRequestException(
+                LlmErrorCode.ImageEncodeFailed,
+                "Failed to encode OCR image as JPEG"
+            )
         val userInstruction = config.userPromptPrefix.ifBlank { DEFAULT_OCR_USER_PROMPT }
         val userContent = JSONArray()
             .put(
@@ -778,13 +781,13 @@ class LlmClient(
             val value = parameter.value.trim()
             if (key.isBlank() && value.isBlank()) return@forEach
             if (key.isBlank()) {
-                throw LlmRequestException("CUSTOM_PARAM_CONFLICT", "blank key")
+                throw LlmRequestException(LlmErrorCode.CustomParamConflict, "blank key")
             }
             if (!seenKeys.add(key)) {
-                throw LlmRequestException("CUSTOM_PARAM_CONFLICT", key)
+                throw LlmRequestException(LlmErrorCode.CustomParamConflict, key)
             }
             if (key in reservedKeys || payload.has(key)) {
-                throw LlmRequestException("CUSTOM_PARAM_CONFLICT", key)
+                throw LlmRequestException(LlmErrorCode.CustomParamConflict, key)
             }
             payload.put(key, parseCustomRequestParameterValue(key, parameter.value))
         }
@@ -799,11 +802,11 @@ class LlmClient(
         trimmed.toDoubleOrNull()?.let { return it }
         if (trimmed.startsWith("{")) {
             return runCatching { JSONObject(trimmed) }
-                .getOrElse { throw LlmRequestException("CUSTOM_PARAM_INVALID_VALUE", key) }
+                .getOrElse { throw LlmRequestException(LlmErrorCode.CustomParamInvalidValue, key) }
         }
         if (trimmed.startsWith("[")) {
             return runCatching { JSONArray(trimmed) }
-                .getOrElse { throw LlmRequestException("CUSTOM_PARAM_INVALID_VALUE", key) }
+                .getOrElse { throw LlmRequestException(LlmErrorCode.CustomParamInvalidValue, key) }
         }
         return rawValue
     }
@@ -901,7 +904,7 @@ class LlmClient(
             val translation = extractTranslationText(json)
             if (translation.isBlank()) {
                 AppLogger.log("LlmClient", "Missing translation field in response")
-                throw LlmResponseException("MISSING_TRANSLATION", content)
+                throw LlmResponseException(LlmErrorCode.MissingTranslation, content)
             }
             LlmTranslationResult(translation, parseGlossaryUsed(json))
         } catch (e: LlmResponseException) {
@@ -912,7 +915,7 @@ class LlmClient(
                 "Invalid translation response format: ${summarizeBody(content)}",
                 e
             )
-            throw LlmResponseException("INVALID_FORMAT", content, e)
+            throw LlmResponseException(LlmErrorCode.InvalidFormat, content, e)
         }
     }
 
@@ -937,7 +940,7 @@ class LlmClient(
             if (cleaned.trim().startsWith("[")) {
                 val items = parseBubbleTranslationItems(JSONArray(cleaned), requestedIds)
                 if (items.isEmpty()) {
-                    throw LlmResponseException("MISSING_TRANSLATION_ITEMS", content)
+                    throw LlmResponseException(LlmErrorCode.MissingTranslationItems, content)
                 }
                 return LlmBubbleTranslationResult(items = items, glossaryUsed = emptyMap())
             }
@@ -945,7 +948,7 @@ class LlmClient(
             val items = extractBubbleTranslationItems(json, requestedIds)
             if (items.isEmpty()) {
                 AppLogger.log("LlmClient", "Missing items field in structured translation response")
-                throw LlmResponseException("MISSING_TRANSLATION_ITEMS", content)
+                throw LlmResponseException(LlmErrorCode.MissingTranslationItems, content)
             }
             LlmBubbleTranslationResult(items = items, glossaryUsed = parseGlossaryUsed(json))
         } catch (e: LlmResponseException) {
@@ -956,7 +959,7 @@ class LlmClient(
                 "Invalid structured translation response format: ${summarizeBody(content)}",
                 e
             )
-            throw LlmResponseException("INVALID_FORMAT", content, e)
+            throw LlmResponseException(LlmErrorCode.InvalidFormat, content, e)
         }
     }
 
@@ -1535,7 +1538,7 @@ class LlmClient(
         }
     }
 
-    internal fun resourceContext(): Context = appContext
+    override fun resourceContext(): Context = appContext
 }
 
 private data class RetryPolicy(
@@ -1549,15 +1552,26 @@ private enum class RetryMode {
 }
 
 class LlmRequestException(
-    val errorCode: String,
+    val errorCode: LlmErrorCode,
     val responseBody: String? = null
-) : Exception("LLM request failed: $errorCode")
+) : Exception("LLM request failed: ${errorCode.value}") {
+    constructor(errorCode: String, responseBody: String? = null) : this(
+        LlmErrorCode.from(errorCode),
+        responseBody
+    )
+}
 
 class LlmResponseException(
-    val errorCode: String,
+    val errorCode: LlmErrorCode,
     val responseContent: String,
     cause: Throwable? = null
-) : Exception("LLM response invalid: $errorCode", cause)
+) : Exception("LLM response invalid: ${errorCode.value}", cause) {
+    constructor(errorCode: String, responseContent: String, cause: Throwable? = null) : this(
+        LlmErrorCode.from(errorCode),
+        responseContent,
+        cause
+    )
+}
 
 data class LlmTranslationResult(
     val translation: String,
