@@ -905,7 +905,19 @@ class SettingsStore(context: Context) {
             }
         root.put("profiles", profilesArray)
         aiProviderProfilesFile.parentFile?.mkdirs()
-        aiProviderProfilesFile.writeText(root.toString())
+        val tmp = File(aiProviderProfilesFile.parentFile, "${aiProviderProfilesFile.name}.tmp")
+        try {
+            tmp.writeText(root.toString())
+            if (!tmp.renameTo(aiProviderProfilesFile)) {
+                if (aiProviderProfilesFile.exists()) aiProviderProfilesFile.delete()
+                if (!tmp.renameTo(aiProviderProfilesFile)) {
+                    AppLogger.log("Settings", "Atomic rename failed for AI provider profiles")
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.log("Settings", "Failed to write AI provider profiles", e)
+            tmp.delete()
+        }
     }
 
     private fun serializeAiProviderProfile(profile: AiProviderProfile): JSONObject {
@@ -1313,11 +1325,11 @@ class SettingsStore(context: Context) {
         private const val DEFAULT_OCR_API_URL = "https://api.siliconflow.cn/v1"
         private const val DEFAULT_OCR_MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
         private const val DEFAULT_OCR_API_TIMEOUT_SECONDS = 300
-        private const val MIN_OCR_API_TIMEOUT_SECONDS = 30
-        private const val MAX_OCR_API_TIMEOUT_SECONDS = 1200
+        const val MIN_OCR_API_TIMEOUT_SECONDS = 30
+        const val MAX_OCR_API_TIMEOUT_SECONDS = 1200
         private const val DEFAULT_OCR_API_CONCURRENCY = 1
-        private const val MIN_OCR_API_CONCURRENCY = 1
-        private const val MAX_OCR_API_CONCURRENCY = 50
+        const val MIN_OCR_API_CONCURRENCY = 1
+        const val MAX_OCR_API_CONCURRENCY = 50
         private const val DEFAULT_LOCAL_OCR_CONCURRENCY = 0  // 0 = auto
         private const val MIN_LOCAL_OCR_CONCURRENCY = 0
         private const val MAX_LOCAL_OCR_CONCURRENCY = 8
@@ -1332,8 +1344,8 @@ class SettingsStore(context: Context) {
         private val DEFAULT_FLOATING_LONG_PRESS_ACTION = FloatingBallGestureAction.OPEN_MENU
         private val DEFAULT_FLOATING_TRIPLE_TAP_ACTION = FloatingBallGestureAction.NONE
         private const val DEFAULT_FLOATING_API_TIMEOUT_SECONDS = 300
-        private const val MIN_FLOATING_API_TIMEOUT_SECONDS = 30
-        private const val MAX_FLOATING_API_TIMEOUT_SECONDS = 1200
+        const val MIN_FLOATING_API_TIMEOUT_SECONDS = 30
+        const val MAX_FLOATING_API_TIMEOUT_SECONDS = 1200
         private const val DEFAULT_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT = 0
         private const val MIN_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT = -30
         private const val MAX_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT = 30

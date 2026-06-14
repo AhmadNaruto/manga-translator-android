@@ -1489,11 +1489,11 @@ class SettingsFragment : Fragment() {
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val timeoutInput = dialogBinding.ocrApiTimeoutInput.text?.toString()?.trim()
                 val timeoutSeconds = parseIntInput(timeoutInput)
-                    ?.coerceIn(OCR_TIMEOUT_MIN_SECONDS, OCR_TIMEOUT_MAX_SECONDS)
+                    ?.coerceIn(SettingsStore.MIN_OCR_API_TIMEOUT_SECONDS, SettingsStore.MAX_OCR_API_TIMEOUT_SECONDS)
                     ?: currentSettings.timeoutSeconds
                 val concurrencyInput = dialogBinding.ocrApiConcurrencyInput.text?.toString()?.trim()
                 val apiOcrConcurrencyLimit = parseIntInput(concurrencyInput)
-                    ?.coerceIn(OCR_API_CONCURRENCY_MIN, OCR_API_CONCURRENCY_MAX)
+                    ?.coerceIn(SettingsStore.MIN_OCR_API_CONCURRENCY, SettingsStore.MAX_OCR_API_CONCURRENCY)
                     ?: currentSettings.apiOcrConcurrencyLimit
                 val localConcurrencyInput = dialogBinding.localOcrConcurrencyInput.text?.toString()?.trim()
                 val localOcrConcurrencyLimit = parseIntInput(localConcurrencyInput)
@@ -1582,7 +1582,7 @@ class SettingsFragment : Fragment() {
                 val timeoutInput =
                     dialogBinding.floatingApiTimeoutInput.text?.toString()?.trim()
                 val timeoutSeconds = parseIntInput(timeoutInput)
-                    ?.coerceIn(FLOATING_TIMEOUT_MIN_SECONDS, FLOATING_TIMEOUT_MAX_SECONDS)
+                    ?.coerceIn(SettingsStore.MIN_FLOATING_API_TIMEOUT_SECONDS, SettingsStore.MAX_FLOATING_API_TIMEOUT_SECONDS)
                     ?: currentSettings.timeoutSeconds
                 val concurrencyInput =
                     dialogBinding.floatingVlTranslateConcurrencyInput.text?.toString()?.trim()
@@ -1905,12 +1905,6 @@ class SettingsFragment : Fragment() {
     companion object {
         private const val PROJECT_URL = "https://github.com/jedzqer/manga-translator"
         private const val RELEASES_URL = "https://github.com/jedzqer/manga-translator/releases"
-        private const val OCR_TIMEOUT_MIN_SECONDS = 30
-        private const val OCR_TIMEOUT_MAX_SECONDS = 1200
-        private const val OCR_API_CONCURRENCY_MIN = 1
-        private const val OCR_API_CONCURRENCY_MAX = 50
-        private const val FLOATING_TIMEOUT_MIN_SECONDS = 30
-        private const val FLOATING_TIMEOUT_MAX_SECONDS = 1200
     }
 
     private data class ParsedLlmParams(

@@ -1019,6 +1019,7 @@ class LibraryFragment : Fragment() {
                 AppLogger.log("Library", "Delete folder failed: ${folder.name}")
                 Toast.makeText(requireContext(), R.string.folder_delete_failed, Toast.LENGTH_SHORT).show()
             } else {
+                readingProgressStore.remove(folder)
                 AppLogger.log("Library", "Deleted folder ${folder.name}")
             }
             refreshFolderViewsAfterMutation(folder)
@@ -1033,6 +1034,8 @@ class LibraryFragment : Fragment() {
                 Toast.makeText(requireContext(), R.string.folder_rename_failed, Toast.LENGTH_SHORT).show()
             } else {
                 preferencesGateway.migrateFolderSettings(folder, renamed)
+                readingProgressStore.save(renamed, readingProgressStore.load(folder))
+                readingProgressStore.remove(folder)
                 AppLogger.log("Library", "Renamed folder ${folder.name} -> ${renamed.name}")
                 refreshFolderViewsAfterMutation(folder, renamed)
             }
@@ -1523,6 +1526,8 @@ class LibraryFragment : Fragment() {
             selected.forEach { folder ->
                 if (!repository.deleteFolder(folder)) {
                     failed = true
+                } else {
+                    readingProgressStore.remove(folder)
                 }
             }
             if (failed) {
@@ -1601,6 +1606,8 @@ class LibraryFragment : Fragment() {
             selected.forEach { child ->
                 if (!repository.deleteFolder(child)) {
                     failed = true
+                } else {
+                    readingProgressStore.remove(child)
                 }
             }
             if (failed) {

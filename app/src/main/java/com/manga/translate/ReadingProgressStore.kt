@@ -17,6 +17,12 @@ class ReadingProgressStore(context: Context) {
             }
     }
 
+    fun remove(folder: File) {
+        prefs.edit() {
+            remove(keyFor(folder))
+        }
+    }
+
     private fun keyFor(folder: File): String {
         return folder.absolutePath
     }
