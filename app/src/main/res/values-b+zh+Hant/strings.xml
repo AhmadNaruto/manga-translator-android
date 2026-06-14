@@ -31,11 +31,12 @@
     <string name="api_retry_count_hint">API 最大重試次數 (1–50)</string>
     <string name="floating_api_timeout_hint">懸浮翻譯 API 逾時 (秒, 30–1200)</string>
     <string name="max_concurrency_hint">AI API 呼叫並行數 (1–200)</string>
-    <string name="api_settings_note_openai">範例 URL：https://api.siliconflow.cn/v1</string>
+    <string name="api_settings_note_openai">範例 URL：https://api.siliconflow.cn/v1 或 https://open.bigmodel.cn/api/paas/v4</string>
     <string name="api_settings_note_gemini">範例 URL：https://generativelanguage.googleapis.com/v1beta</string>
     <string name="api_url_required">請先填寫 API 位址</string>
     <string name="missing_api_settings">請先在設定中填寫 API 位址與 Key</string>
     <string name="missing_translate_api_settings">請先在設定中填寫 API 位址、Key 與模型名稱</string>
+    <string name="api_request_error_model_list_unsupported">目前供應商不支援自動取得模型列表，請手動填寫模型名稱。</string>
 
     <!-- Settings / Display -->
     <string name="text_layout_horizontal">漫畫使用橫向排版</string>
