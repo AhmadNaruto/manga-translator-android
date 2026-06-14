@@ -8,11 +8,9 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
-import android.os.Build
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,22 +28,10 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import com.manga.translate.databinding.FragmentLibraryBinding
 import com.manga.translate.di.appContainer
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
-import java.util.ArrayDeque
 
 class LibraryFragment : Fragment() {
-    private companion object {
-        const val MODEL_ERROR_RESHOW_DELAY_MS = 15_000L
-    }
-
-    private data class PendingModelErrorDialog(
-        val content: String,
-        val onRetry: (() -> Unit)?,
-        val onSkip: (() -> Unit)?,
-        val useSystemOverlay: Boolean
-    )
 
     private var _binding: FragmentLibraryBinding? = null
     private val binding get() = _binding!!
@@ -80,9 +66,9 @@ class LibraryFragment : Fragment() {
     private var folderDetailContentBaseTopPadding: Int = 0
     private var isChapterSelectionMode: Boolean = false
     private var isLibrarySelectionMode: Boolean = false
-    private val pendingModelErrorDialogs = ArrayDeque<PendingModelErrorDialog>()
-    private var activeModelErrorDialog: AlertDialog? = null
-    private var activeModelErrorRequest: PendingModelErrorDialog? = null
+    private val modelErrorController by lazy(LazyThreadSafetyMode.NONE) {
+        ModelErrorDialogController(this, dialogs)
+    }
 
     private val tutorialUrlGithub =
         "https://github.com/jedzqer/manga-translator/blob/main/Tutorial/简中教程.md"
@@ -150,19 +136,7 @@ class LibraryFragment : Fragment() {
             onRetry: (() -> Unit)?,
             onSkip: (() -> Unit)?
         ) {
-            if (!isAdded) {
-                onSkip?.invoke()
-                return
-            }
-            pendingModelErrorDialogs.addLast(
-                PendingModelErrorDialog(
-                    content = content,
-                    onRetry = onRetry,
-                    onSkip = onSkip,
-                    useSystemOverlay = useSystemOverlay
-                )
-            )
-            showNextModelErrorDialog()
+            modelErrorController.enqueue(content, useSystemOverlay, onRetry, onSkip)
         }
 
         override fun refreshFolders() {
@@ -549,62 +523,14 @@ class LibraryFragment : Fragment() {
 
     override fun onDestroyView() {
         LibraryUiBridge.unregister(uiCallbacks)
-        activeModelErrorDialog?.dismiss()
-        activeModelErrorDialog = null
-        activeModelErrorRequest = null
+        modelErrorController.onDestroy()
         super.onDestroyView()
         _binding = null
     }
 
     override fun onResume() {
         super.onResume()
-        showNextModelErrorDialog()
-    }
-
-    private fun showNextModelErrorDialog() {
-        if (!isAdded || activeModelErrorDialog != null) return
-        if (pendingModelErrorDialogs.isEmpty()) return
-        val request = pendingModelErrorDialogs.first()
-        if (!request.useSystemOverlay && !uiCallbacks.isAppInForeground()) return
-        pendingModelErrorDialogs.removeFirst()
-        val dialog = dialogs.showModelErrorDialog(
-            requireContext(),
-            request.content,
-            onRetry = request.onRetry,
-            onSkip = request.onSkip,
-            onUnresolvedDismiss = {
-                requeueModelErrorDialog(request)
-            },
-            onDialogDismissed = {
-                activeModelErrorRequest = null
-                activeModelErrorDialog = null
-                showNextModelErrorDialog()
-            },
-            windowType = if (request.useSystemOverlay) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                }
-            } else {
-                null
-            }
-        )
-        activeModelErrorRequest = request
-        activeModelErrorDialog = dialog
-    }
-
-    private fun requeueModelErrorDialog(request: PendingModelErrorDialog) {
-        if (!isAdded) return
-        activeModelErrorRequest = null
-        activeModelErrorDialog = null
-        viewLifecycleOwner.lifecycleScope.launch {
-            delay(MODEL_ERROR_RESHOW_DELAY_MS)
-            if (!isAdded || _binding == null) return@launch
-            pendingModelErrorDialogs.addFirst(request)
-            showNextModelErrorDialog()
-        }
+        modelErrorController.onResume()
     }
 
     private fun showFolderList() {

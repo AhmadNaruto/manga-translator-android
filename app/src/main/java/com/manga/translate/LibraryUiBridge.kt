@@ -46,12 +46,13 @@ internal object LibraryUiBridge {
         onRetry: (() -> Unit)?,
         onSkip: (() -> Unit)? = null
     ) {
-        val activeCallbacks = callbacks.filter { it.isUiAttached() }
-        if (activeCallbacks.isEmpty()) {
+        val snapshot = callbacks.toList()
+        if (snapshot.isEmpty()) {
             onSkip?.invoke()
             return
         }
-        activeCallbacks.forEach { callback ->
+        for (callback in snapshot) {
+            if (!callback.isUiAttached()) continue
             callback.showModelError(content, useSystemOverlay, onRetry, onSkip)
         }
     }

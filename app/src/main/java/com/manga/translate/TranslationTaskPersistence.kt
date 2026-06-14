@@ -196,6 +196,7 @@ internal fun TranslationTaskDescriptor.toFolderTasks(): List<FolderTranslationTa
         val folder = File(descriptor.folderPath)
         val images = descriptor.imagePaths.map(::File).filter(File::exists)
         if (!folder.exists() || images.isEmpty()) {
+            AppLogger.log("Library", "Skipping folder task — folder or images missing: ${descriptor.folderPath}")
             null
         } else {
             FolderTranslationTask(
