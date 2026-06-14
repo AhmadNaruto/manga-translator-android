@@ -54,7 +54,6 @@ class SettingsFragment : Fragment() {
     private val appContainer by lazy(LazyThreadSafetyMode.NONE) { requireContext().appContainer }
     private val settingsStore by lazy(LazyThreadSafetyMode.NONE) { appContainer.settingsStore }
     private val llmClient by lazy(LazyThreadSafetyMode.NONE) { appContainer.llmClient }
-    private lateinit var settingsPersistenceController: SettingsPersistenceController
     private val numberFormatter by lazy {
         NumberFormat.getNumberInstance(Locale.getDefault()).apply {
             isGroupingUsed = false
@@ -306,7 +305,6 @@ class SettingsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        settingsPersistenceController = SettingsPersistenceController(settingsStore)
         reloadSettingsUiFromStore()
         binding.modelIoLoggingSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsStore.saveModelIoLogging(isChecked)
@@ -412,7 +410,7 @@ class SettingsFragment : Fragment() {
         val apiRetryCount = parseIntInput(retryCountInput) ?: settingsStore.loadApiRetryCount()
         val concurrencyInput = binding.maxConcurrencyInput.text?.toString()?.trim()
         val maxConcurrency = parseIntInput(concurrencyInput) ?: settingsStore.loadMaxConcurrency()
-        val persisted = settingsPersistenceController.persistMainForm(
+        val persisted = settingsStore.persistMainSettings(
             SettingsMainForm(
                 apiUrl = url,
                 apiKey = key,

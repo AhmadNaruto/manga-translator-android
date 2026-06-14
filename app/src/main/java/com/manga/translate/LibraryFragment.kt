@@ -945,6 +945,7 @@ class LibraryFragment : Fragment() {
                 AppLogger.log("Library", "Delete folder failed: ${folder.name}")
                 Toast.makeText(requireContext(), R.string.folder_delete_failed, Toast.LENGTH_SHORT).show()
             } else {
+                preferencesGateway.clearFolderSettings(folder)
                 readingProgressStore.remove(folder)
                 AppLogger.log("Library", "Deleted folder ${folder.name}")
             }
@@ -1453,6 +1454,7 @@ class LibraryFragment : Fragment() {
                 if (!repository.deleteFolder(folder)) {
                     failed = true
                 } else {
+                    preferencesGateway.clearFolderSettings(folder)
                     readingProgressStore.remove(folder)
                 }
             }

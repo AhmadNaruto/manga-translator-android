@@ -41,7 +41,7 @@ internal class LibraryPreferencesGateway(
 
     fun getTranslationLanguage(folder: File): TranslationLanguage {
         val value = prefs.getString(languageKeyPrefix + settingsFolder(folder).absolutePath, null)
-        return TranslationLanguage.fromString(value)
+        return TranslationLanguage.fromPref(value)
     }
 
     fun isVlDirectTranslateEnabled(folder: File): Boolean {
@@ -61,7 +61,7 @@ internal class LibraryPreferencesGateway(
 
     fun setTranslationLanguage(folder: File, language: TranslationLanguage) {
         prefs.edit() {
-            putString(languageKeyPrefix + settingsFolder(folder).absolutePath, language.name)
+            putString(languageKeyPrefix + settingsFolder(folder).absolutePath, language.prefValue)
         }
     }
 
@@ -99,6 +99,16 @@ internal class LibraryPreferencesGateway(
                     }
                 }
                 remove(oldKey)
+            }
+        }
+    }
+
+    fun clearFolderSettings(folder: File) {
+        val resolved = settingsFolder(folder)
+        if (resolved.absolutePath != folder.absolutePath) return
+        prefs.edit {
+            settingsKeyPrefixes.forEach { prefix ->
+                remove(prefix + resolved.absolutePath)
             }
         }
     }

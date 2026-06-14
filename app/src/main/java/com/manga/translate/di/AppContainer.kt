@@ -29,39 +29,28 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 internal class AppContainer(private val appContext: Context) {
     private val translationPipelines = CopyOnWriteArrayList<WeakReference<TranslationPipeline>>()
-    val settingsStore by lazy(LazyThreadSafetyMode.NONE) { SettingsStore(appContext) }
-    val crashStateStore by lazy(LazyThreadSafetyMode.NONE) { CrashStateStore(appContext) }
-    val updateIgnoreStore by lazy(LazyThreadSafetyMode.NONE) { UpdateIgnoreStore(appContext) }
-    val readingProgressStore by lazy(LazyThreadSafetyMode.NONE) { ReadingProgressStore(appContext) }
-    val libraryRepository by lazy(LazyThreadSafetyMode.NONE) { LibraryRepository(appContext) }
-    val llmClient by lazy(LazyThreadSafetyMode.NONE) { LlmClient(appContext, settingsStore) }
-    val ocrEngineRegistry by lazy(LazyThreadSafetyMode.NONE) {
-        com.manga.translate.OcrEngineRegistry(appContext, settingsStore)
+    val settingsStore = SettingsStore(appContext)
+    val crashStateStore = CrashStateStore(appContext)
+    val updateIgnoreStore = UpdateIgnoreStore(appContext)
+    val readingProgressStore = ReadingProgressStore(appContext)
+    val libraryRepository = LibraryRepository(appContext)
+    val llmClient = LlmClient(appContext, settingsStore)
+    val ocrEngineRegistry = com.manga.translate.OcrEngineRegistry(appContext, settingsStore)
+    val localModelMemoryManager = LocalModelMemoryManager {
+        releasePipelineModels()
+        ocrEngineRegistry.releaseLoadedEngines()
+        OnnxRuntimeSupport.closeCachedSessions()
     }
-    val localModelMemoryManager by lazy(LazyThreadSafetyMode.NONE) {
-        LocalModelMemoryManager {
-            releasePipelineModels()
-            ocrEngineRegistry.releaseLoadedEngines()
-            OnnxRuntimeSupport.closeCachedSessions()
-        }
-    }
-    val bubbleTextRecognizer by lazy(LazyThreadSafetyMode.NONE) {
+    val bubbleTextRecognizer =
         com.manga.translate.BubbleTextRecognizer(llmClient, ocrEngineRegistry, settingsStore)
-    }
-    val translationStore by lazy(LazyThreadSafetyMode.NONE) { TranslationStore() }
-    val ocrStore by lazy(LazyThreadSafetyMode.NONE) { OcrStore() }
-    val glossaryStore by lazy(LazyThreadSafetyMode.NONE) { GlossaryStore() }
-    val extractStateStore by lazy(LazyThreadSafetyMode.NONE) { ExtractStateStore() }
-    val translationProgressStore by lazy(LazyThreadSafetyMode.NONE) { TranslationProgressStore() }
-    val floatingTranslationCacheStore by lazy(LazyThreadSafetyMode.NONE) {
-        FloatingTranslationCacheStore(appContext)
-    }
-    val textBubbleTranslationCoordinator by lazy(LazyThreadSafetyMode.NONE) {
-        TextBubbleTranslationCoordinator(llmClient = llmClient)
-    }
-    val libraryPrefs by lazy(LazyThreadSafetyMode.NONE) {
-        appContext.getSharedPreferences(LIBRARY_PREFS_NAME, Context.MODE_PRIVATE)
-    }
+    val translationStore = TranslationStore()
+    val ocrStore = OcrStore()
+    val glossaryStore = GlossaryStore()
+    val extractStateStore = ExtractStateStore()
+    val translationProgressStore = TranslationProgressStore()
+    val floatingTranslationCacheStore = FloatingTranslationCacheStore(appContext)
+    val textBubbleTranslationCoordinator = TextBubbleTranslationCoordinator(llmClient = llmClient)
+    val libraryPrefs = appContext.getSharedPreferences(LIBRARY_PREFS_NAME, Context.MODE_PRIVATE)
 
     fun createTranslationPipeline(): TranslationPipeline {
         return TranslationPipeline(

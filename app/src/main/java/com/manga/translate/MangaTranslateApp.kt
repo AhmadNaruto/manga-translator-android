@@ -8,7 +8,7 @@ import com.manga.translate.di.AppContainer
 import java.util.concurrent.atomic.AtomicInteger
 
 class MangaTranslateApp : Application() {
-    internal val appContainer by lazy(LazyThreadSafetyMode.NONE) { AppContainer(this) }
+    internal val appContainer by lazy { AppContainer(this) }
     private val startedActivities = AtomicInteger(0)
 
     override fun onCreate() {

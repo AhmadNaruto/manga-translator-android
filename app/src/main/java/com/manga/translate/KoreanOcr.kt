@@ -39,7 +39,13 @@ class KoreanOcr(
     override fun getDefaultCharset(): List<String> {
         val chars = mutableListOf("blank")
 
-        for (cp in 0xAC00..0xD7A3) {
+        // Last-resort fallback only. Keep it compact to avoid pathological CTC decode cost
+        // when both session metadata and asset metadata extraction are unavailable.
+        for (cp in 0x3131..0x318E) {
+            chars.add(String(Character.toChars(cp)))
+        }
+
+        for (cp in 0x1100..0x11FF) {
             chars.add(String(Character.toChars(cp)))
         }
 

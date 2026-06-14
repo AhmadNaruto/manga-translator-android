@@ -65,7 +65,7 @@ internal class TranslationTaskPersistence(context: Context) {
             .put("fullTranslate", fullTranslate)
             .put("glossaryProcessingEnabled", glossaryProcessingEnabled)
             .put("useVlDirectTranslate", useVlDirectTranslate)
-            .put("language", language.name)
+            .put("language", language.prefValue)
     }
 
     companion object {
@@ -161,8 +161,8 @@ private fun parseFolderTranslationTaskDescriptor(json: JSONObject): FolderTransl
         fullTranslate = json.optBoolean("fullTranslate"),
         glossaryProcessingEnabled = json.optBoolean("glossaryProcessingEnabled", true),
         useVlDirectTranslate = json.optBoolean("useVlDirectTranslate"),
-        language = TranslationLanguage.fromString(
-            json.optString("language", TranslationLanguage.JA_TO_ZH.name)
+        language = TranslationLanguage.fromPref(
+            json.optString("language", TranslationLanguage.JA_TO_ZH.prefValue)
         )
     )
 }
@@ -180,7 +180,7 @@ internal fun TranslationTaskDescriptor.toJsonString(): String {
                 .put("fullTranslate", task.fullTranslate)
                 .put("glossaryProcessingEnabled", task.glossaryProcessingEnabled)
                 .put("useVlDirectTranslate", task.useVlDirectTranslate)
-                .put("language", task.language.name)
+                .put("language", task.language.prefValue)
         )
     }
     return JSONObject()

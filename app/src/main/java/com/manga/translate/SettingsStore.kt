@@ -1,7 +1,14 @@
 package com.manga.translate
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -117,10 +124,34 @@ data class AiProviderProfilesState(
     val profiles: List<AiProviderProfile>
 )
 
+internal data class SettingsMainForm(
+    val apiUrl: String,
+    val apiKey: String,
+    val modelName: String,
+    val apiFormat: ApiFormat,
+    val apiTimeoutSeconds: Int,
+    val apiRetryCount: Int,
+    val maxConcurrency: Int
+)
+
+internal data class SettingsPersistenceResult(
+    val apiTimeoutSeconds: Int,
+    val apiRetryCount: Int,
+    val maxConcurrency: Int,
+    val concurrencySaved: Boolean
+)
+
 class SettingsStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val aiProviderProfilesFile = File(context.filesDir, AI_PROVIDER_PROFILES_FILE_NAME)
+    private val settingsObserver = getObservationHub(prefs)
+
+    val settingsVersion: StateFlow<Long>
+        get() = settingsObserver.version
+
+    val settingChanges: SharedFlow<Set<String>>
+        get() = settingsObserver.changes
 
     fun load(): ApiSettings {
         val url = prefs.getString(KEY_API_URL, DEFAULT_API_URL) ?: DEFAULT_API_URL
@@ -131,7 +162,9 @@ class SettingsStore(context: Context) {
     }
 
     fun save(settings: ApiSettings) {
-        prefs.edit() {
+        editSettings(
+            setOf(KEY_API_URL, KEY_API_KEY, KEY_MODEL_NAME, KEY_API_FORMAT)
+        ) {
                 putString(KEY_API_URL, settings.apiUrl)
                 .putString(KEY_API_KEY, settings.apiKey)
                 .putString(KEY_MODEL_NAME, settings.modelName)
@@ -162,8 +195,8 @@ class SettingsStore(context: Context) {
             apiUrl = prefs.getString(KEY_FLOATING_API_URL, "") ?: "",
             apiKey = prefs.getString(KEY_FLOATING_API_KEY, "") ?: "",
             modelName = prefs.getString(KEY_FLOATING_MODEL_NAME, "") ?: "",
-            language = TranslationLanguage.fromString(
-                prefs.getString(KEY_FLOATING_LANGUAGE, TranslationLanguage.JA_TO_ZH.name)
+            language = TranslationLanguage.fromPref(
+                prefs.getString(KEY_FLOATING_LANGUAGE, TranslationLanguage.JA_TO_ZH.prefValue)
             ),
             timeoutSeconds = prefs.getInt(
                 KEY_FLOATING_TIMEOUT_SECONDS,
@@ -224,11 +257,28 @@ class SettingsStore(context: Context) {
             MIN_FLOATING_API_TIMEOUT_SECONDS,
             MAX_FLOATING_API_TIMEOUT_SECONDS
         )
-        prefs.edit() {
+        editSettings(
+            setOf(
+                KEY_FLOATING_API_URL,
+                KEY_FLOATING_API_KEY,
+                KEY_FLOATING_MODEL_NAME,
+                KEY_FLOATING_LANGUAGE,
+                KEY_FLOATING_TIMEOUT_SECONDS,
+                KEY_FLOATING_USE_VL_DIRECT_TRANSLATE,
+                KEY_FLOATING_OCR_CONCURRENCY,
+                KEY_FLOATING_VL_TRANSLATE_CONCURRENCY,
+                KEY_FLOATING_PROOFREADING_MODE_ENABLED,
+                KEY_FLOATING_AUTO_CLOSE_ON_SCREEN_CHANGE_ENABLED,
+                KEY_FLOATING_SINGLE_TAP_ACTION,
+                KEY_FLOATING_DOUBLE_TAP_ACTION,
+                KEY_FLOATING_LONG_PRESS_ACTION,
+                KEY_FLOATING_TRIPLE_TAP_ACTION
+            )
+        ) {
                 putString(KEY_FLOATING_API_URL, settings.apiUrl)
                 .putString(KEY_FLOATING_API_KEY, settings.apiKey)
                 .putString(KEY_FLOATING_MODEL_NAME, settings.modelName)
-                .putString(KEY_FLOATING_LANGUAGE, settings.language.name)
+                .putString(KEY_FLOATING_LANGUAGE, settings.language.prefValue)
                 .putInt(KEY_FLOATING_TIMEOUT_SECONDS, normalizedTimeout)
                 .putBoolean(KEY_FLOATING_USE_VL_DIRECT_TRANSLATE, settings.useVlDirectTranslate)
                 .putInt(KEY_FLOATING_OCR_CONCURRENCY, normalizedOcrConcurrency)
@@ -282,7 +332,18 @@ class SettingsStore(context: Context) {
             .coerceIn(MIN_OCR_API_CONCURRENCY, MAX_OCR_API_CONCURRENCY)
         val normalizedLocalConcurrency = settings.localOcrConcurrencyLimit
             .coerceIn(MIN_LOCAL_OCR_CONCURRENCY, MAX_LOCAL_OCR_CONCURRENCY)
-        prefs.edit() {
+        editSettings(
+            setOf(
+                KEY_OCR_USE_LOCAL,
+                KEY_JAPANESE_LOCAL_OCR_ENGINE,
+                KEY_OCR_API_URL,
+                KEY_OCR_API_KEY,
+                KEY_OCR_MODEL_NAME,
+                KEY_OCR_API_TIMEOUT_SECONDS,
+                KEY_OCR_API_CONCURRENCY,
+                KEY_LOCAL_OCR_CONCURRENCY
+            )
+        ) {
                 putBoolean(KEY_OCR_USE_LOCAL, settings.useLocalOcr)
                 .putString(
                     KEY_JAPANESE_LOCAL_OCR_ENGINE,
@@ -302,7 +363,7 @@ class SettingsStore(context: Context) {
     }
 
     fun saveUseHorizontalText(enabled: Boolean) {
-        prefs.edit() {
+        editSettings(setOf(KEY_HORIZONTAL_TEXT)) {
                 putBoolean(KEY_HORIZONTAL_TEXT, enabled)
             }
     }
@@ -343,7 +404,16 @@ class SettingsStore(context: Context) {
     }
 
     fun saveNormalBubbleRenderSettings(settings: NormalBubbleRenderSettings) {
-        prefs.edit() {
+        editSettings(
+            setOf(
+                KEY_NORMAL_BUBBLE_SHRINK_PERCENT,
+                KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+                KEY_NORMAL_BUBBLE_MIN_AREA_PER_CHAR_SP,
+                KEY_NORMAL_FREE_BUBBLE_SHRINK_PERCENT,
+                KEY_NORMAL_FREE_BUBBLE_OPACITY_PERCENT,
+                KEY_HORIZONTAL_TEXT
+            )
+        ) {
                 putInt(
                     KEY_NORMAL_BUBBLE_SHRINK_PERCENT,
                     settings.shrinkPercent.coerceIn(
@@ -414,7 +484,15 @@ class SettingsStore(context: Context) {
     }
 
     fun saveFloatingBubbleRenderSettings(settings: FloatingBubbleRenderSettings) {
-        prefs.edit() {
+        editSettings(
+            setOf(
+                KEY_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
+                KEY_FLOATING_BUBBLE_OPACITY_PERCENT,
+                KEY_FLOATING_BUBBLE_SHAPE,
+                KEY_FLOATING_BUBBLE_HORIZONTAL_TEXT,
+                KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP
+            )
+        ) {
                 putInt(
                     KEY_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
                     settings.sizeAdjustPercent.coerceIn(
@@ -446,9 +524,69 @@ class SettingsStore(context: Context) {
     }
 
     fun saveModelIoLogging(enabled: Boolean) {
-        prefs.edit() {
+        editSettings(setOf(KEY_MODEL_IO_LOGGING)) {
                 putBoolean(KEY_MODEL_IO_LOGGING, enabled)
             }
+    }
+
+    internal fun persistMainSettings(form: SettingsMainForm): SettingsPersistenceResult {
+        val normalizedTimeout = form.apiTimeoutSeconds.coerceIn(
+            MIN_API_TIMEOUT_SECONDS,
+            MAX_API_TIMEOUT_SECONDS
+        )
+        val normalizedRetryCount = form.apiRetryCount.coerceIn(
+            MIN_API_RETRY_COUNT,
+            MAX_API_RETRY_COUNT
+        )
+        val normalizedConcurrency = form.maxConcurrency.coerceIn(
+            MIN_MAX_CONCURRENCY,
+            MAX_MAX_CONCURRENCY
+        )
+        val mainProviderCount = if (
+            ApiSettings(
+                apiUrl = form.apiUrl,
+                apiKey = form.apiKey,
+                modelName = form.modelName,
+                apiFormat = form.apiFormat,
+                providerId = PRIMARY_PROVIDER_ID
+            ).isValid()
+        ) {
+            1
+        } else {
+            0
+        }
+        val additionalProviderCount = loadAdditionalTranslationProviders()
+            .count { it.enabled && it.isConfigured() }
+        val minimumConcurrency = (mainProviderCount + additionalProviderCount).coerceAtLeast(1)
+        val concurrencySaved = normalizedConcurrency >= minimumConcurrency
+
+        val changedKeys = buildSet {
+            add(KEY_API_URL)
+            add(KEY_API_KEY)
+            add(KEY_MODEL_NAME)
+            add(KEY_API_FORMAT)
+            add(KEY_API_TIMEOUT_SECONDS)
+            add(KEY_API_RETRY_COUNT)
+            if (concurrencySaved) add(KEY_MAX_CONCURRENCY)
+        }
+        editSettings(changedKeys) {
+            putString(KEY_API_URL, form.apiUrl)
+            putString(KEY_API_KEY, form.apiKey)
+            putString(KEY_MODEL_NAME, form.modelName)
+            putString(KEY_API_FORMAT, form.apiFormat.prefValue)
+            putInt(KEY_API_TIMEOUT_SECONDS, normalizedTimeout)
+            putInt(KEY_API_RETRY_COUNT, normalizedRetryCount)
+            if (concurrencySaved) {
+                putInt(KEY_MAX_CONCURRENCY, normalizedConcurrency)
+            }
+        }
+
+        return SettingsPersistenceResult(
+            apiTimeoutSeconds = normalizedTimeout,
+            apiRetryCount = normalizedRetryCount,
+            maxConcurrency = if (concurrencySaved) normalizedConcurrency else loadMaxConcurrency(),
+            concurrencySaved = concurrencySaved
+        )
     }
 
     fun loadApiRetryCount(): Int {
@@ -458,7 +596,7 @@ class SettingsStore(context: Context) {
 
     fun saveApiRetryCount(value: Int) {
         val normalized = value.coerceIn(MIN_API_RETRY_COUNT, MAX_API_RETRY_COUNT)
-        prefs.edit() {
+        editSettings(setOf(KEY_API_RETRY_COUNT)) {
                 putInt(KEY_API_RETRY_COUNT, normalized)
             }
     }
@@ -470,7 +608,7 @@ class SettingsStore(context: Context) {
 
     fun saveMaxConcurrency(value: Int) {
         val normalized = value.coerceIn(MIN_MAX_CONCURRENCY, MAX_MAX_CONCURRENCY)
-        prefs.edit() {
+        editSettings(setOf(KEY_MAX_CONCURRENCY)) {
                 putInt(KEY_MAX_CONCURRENCY, normalized)
             }
     }
@@ -486,7 +624,7 @@ class SettingsStore(context: Context) {
 
     fun saveApiTimeoutSeconds(value: Int) {
         val normalized = value.coerceIn(MIN_API_TIMEOUT_SECONDS, MAX_API_TIMEOUT_SECONDS)
-        prefs.edit() {
+        editSettings(setOf(KEY_API_TIMEOUT_SECONDS)) {
                 putInt(KEY_API_TIMEOUT_SECONDS, normalized)
             }
     }
@@ -502,13 +640,13 @@ class SettingsStore(context: Context) {
     }
 
     fun saveAppLanguage(language: AppLanguage) {
-        prefs.edit() {
+        editSettings(setOf(KEY_APP_LANGUAGE)) {
                 putString(KEY_APP_LANGUAGE, language.prefValue)
             }
     }
 
     fun saveThemeMode(mode: ThemeMode) {
-        prefs.edit() {
+        editSettings(setOf(KEY_THEME_MODE)) {
                 putString(KEY_THEME_MODE, mode.prefValue)
             }
     }
@@ -519,7 +657,7 @@ class SettingsStore(context: Context) {
     }
 
     fun saveReadingDisplayMode(mode: ReadingDisplayMode) {
-        prefs.edit() {
+        editSettings(setOf(KEY_READING_DISPLAY_MODE)) {
                 putString(KEY_READING_DISPLAY_MODE, mode.prefValue)
             }
     }
@@ -533,7 +671,7 @@ class SettingsStore(context: Context) {
     }
 
     fun saveReadingPageAnimationMode(mode: ReadingPageAnimationMode) {
-        prefs.edit() {
+        editSettings(setOf(KEY_READING_PAGE_ANIMATION_MODE)) {
                 putString(KEY_READING_PAGE_ANIMATION_MODE, mode.prefValue)
             }
     }
@@ -554,7 +692,7 @@ class SettingsStore(context: Context) {
             MIN_BUBBLE_CONF_THRESHOLD_PERCENT,
             MAX_BUBBLE_CONF_THRESHOLD_PERCENT
         )
-        prefs.edit() {
+        editSettings(setOf(KEY_BUBBLE_CONF_THRESHOLD_PERCENT)) {
                 putInt(KEY_BUBBLE_CONF_THRESHOLD_PERCENT, normalized)
             }
     }
@@ -579,7 +717,7 @@ class SettingsStore(context: Context) {
             MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
             MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
         )
-        prefs.edit() {
+        editSettings(setOf(KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT)) {
                 putInt(KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT, normalized)
             }
     }
@@ -595,7 +733,7 @@ class SettingsStore(context: Context) {
     }
 
     fun saveTranslationStyle(style: String) {
-        prefs.edit() {
+        editSettings(setOf(KEY_TRANSLATION_STYLE)) {
             putString(KEY_TRANSLATION_STYLE, style.trim())
         }
     }
@@ -606,7 +744,7 @@ class SettingsStore(context: Context) {
     }
 
     fun saveLinkSource(source: LinkSource) {
-        prefs.edit() {
+        editSettings(setOf(KEY_LINK_SOURCE)) {
                 putString(KEY_LINK_SOURCE, source.prefValue)
             }
     }
@@ -625,7 +763,18 @@ class SettingsStore(context: Context) {
     }
 
     fun saveLlmParameters(settings: LlmParameterSettings) {
-        prefs.edit() {
+        editSettings(
+            setOf(
+                KEY_LLM_TEMPERATURE,
+                KEY_LLM_TOP_P,
+                KEY_LLM_TOP_K,
+                KEY_LLM_MAX_OUTPUT_TOKENS,
+                KEY_LLM_ENABLE_THINKING,
+                KEY_LLM_THINKING_BUDGET,
+                KEY_LLM_FREQUENCY_PENALTY,
+                KEY_LLM_PRESENCE_PENALTY
+            )
+        ) {
                 putOptionalString(KEY_LLM_TEMPERATURE, settings.temperature)
                 .putOptionalString(KEY_LLM_TOP_P, settings.topP)
                 .putOptionalString(KEY_LLM_TOP_K, settings.topK)
@@ -686,7 +835,7 @@ class SettingsStore(context: Context) {
                     )
             )
         }
-        prefs.edit() {
+        editSettings(setOf(KEY_CUSTOM_REQUEST_PARAMETERS)) {
             putString(
                 KEY_CUSTOM_REQUEST_PARAMETERS,
                 JSONObject()
@@ -740,7 +889,7 @@ class SettingsStore(context: Context) {
                     .put("enabled", provider.enabled)
             )
         }
-        prefs.edit() {
+        editSettings(setOf(KEY_ADDITIONAL_TRANSLATION_PROVIDERS)) {
             putString(
                 KEY_ADDITIONAL_TRANSLATION_PROVIDERS,
                 JSONObject()
@@ -917,7 +1066,9 @@ class SettingsStore(context: Context) {
         } catch (e: Exception) {
             AppLogger.log("Settings", "Failed to write AI provider profiles", e)
             tmp.delete()
+            return
         }
+        settingsObserver.publish(setOf(KEY_AI_PROVIDER_PROFILES_STATE))
     }
 
     private fun serializeAiProviderProfile(profile: AiProviderProfile): JSONObject {
@@ -953,7 +1104,7 @@ class SettingsStore(context: Context) {
                     .put("apiUrl", profile.floatingTranslateSettings.apiUrl)
                     .put("apiKey", profile.floatingTranslateSettings.apiKey)
                     .put("modelName", profile.floatingTranslateSettings.modelName)
-                    .put("language", profile.floatingTranslateSettings.language.name)
+                    .put("language", profile.floatingTranslateSettings.language.prefValue)
                     .put("timeoutSeconds", profile.floatingTranslateSettings.timeoutSeconds)
                     .put(
                         "useVlDirectTranslate",
@@ -1086,8 +1237,8 @@ class SettingsStore(context: Context) {
                 apiUrl = floatingJson.optString("apiUrl"),
                 apiKey = floatingJson.optString("apiKey"),
                 modelName = floatingJson.optString("modelName"),
-                language = TranslationLanguage.fromString(
-                    floatingJson.optString("language", TranslationLanguage.JA_TO_ZH.name)
+                language = TranslationLanguage.fromPref(
+                    floatingJson.optString("language", TranslationLanguage.JA_TO_ZH.prefValue)
                 ),
                 timeoutSeconds = floatingJson.optInt(
                     "timeoutSeconds",
@@ -1243,6 +1394,14 @@ class SettingsStore(context: Context) {
         return value.toIntOrNull()
     }
 
+    private inline fun editSettings(
+        changedKeys: Set<String>,
+        operation: SharedPreferences.Editor.() -> Unit
+    ) {
+        prefs.edit(action = operation)
+        settingsObserver.publish(changedKeys)
+    }
+
     companion object {
         private const val PREFS_NAME = "manga_translate_settings"
         private const val AI_PROVIDER_PROFILES_FILE_NAME = "ai_provider_profiles.json"
@@ -1310,6 +1469,7 @@ class SettingsStore(context: Context) {
         private const val KEY_LLM_PRESENCE_PENALTY = "llm_presence_penalty"
         private const val KEY_CUSTOM_REQUEST_PARAMETERS = "custom_request_parameters"
         private const val KEY_TRANSLATION_STYLE = "translation_style"
+        internal const val KEY_AI_PROVIDER_PROFILES_STATE = "ai_provider_profiles_state"
         private const val LEGACY_SETTINGS_JSON_VERSION = 1
         private const val SETTINGS_JSON_SCHEMA_VERSION = 2
         const val PRIMARY_PROVIDER_WEIGHT = 10
@@ -1375,6 +1535,31 @@ class SettingsStore(context: Context) {
         private const val DEFAULT_BUBBLE_CONF_THRESHOLD_PERCENT = 20
         private const val MIN_BUBBLE_CONF_THRESHOLD_PERCENT = 1
         private const val MAX_BUBBLE_CONF_THRESHOLD_PERCENT = 95
+
+        @Volatile
+        private var sharedObservationHub: PreferenceObservationHub? = null
+
+        private fun getObservationHub(@Suppress("UNUSED_PARAMETER") prefs: SharedPreferences): PreferenceObservationHub {
+            return sharedObservationHub ?: synchronized(this) {
+                sharedObservationHub ?: PreferenceObservationHub().also {
+                    sharedObservationHub = it
+                }
+            }
+        }
+    }
+}
+
+private class PreferenceObservationHub {
+    private val _version = MutableStateFlow(0L)
+    private val _changes = MutableSharedFlow<Set<String>>(extraBufferCapacity = 32)
+
+    val version: StateFlow<Long> = _version.asStateFlow()
+    val changes: SharedFlow<Set<String>> = _changes.asSharedFlow()
+
+    fun publish(keys: Set<String>) {
+        if (keys.isEmpty()) return
+        _version.value = _version.value + 1L
+        _changes.tryEmit(keys)
     }
 }
 

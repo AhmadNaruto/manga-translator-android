@@ -102,7 +102,7 @@ internal class ReadingEmptyBubbleCoordinator(
     private fun getTranslationLanguage(folder: File): TranslationLanguage {
         val settingsFolder = repository.resolveSettingsFolder(folder)
         val value = libraryPrefs.getString(languageKeyPrefix + settingsFolder.absolutePath, null)
-        return TranslationLanguage.fromString(value)
+        return TranslationLanguage.fromPref(value)
     }
 
     private suspend fun translateOcrBubbles(

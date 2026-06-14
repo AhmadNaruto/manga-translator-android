@@ -250,22 +250,58 @@ abstract class PaddleOcrBase(
         try {
             val meta = session.metadata
             val customMetadata = meta.customMetadata
-            val charString = customMetadata["character"] ?: return getDefaultCharset()
-
-            val charList = charString.lines().filter { it.isNotBlank() }.toMutableList()
-
-            charList.add(0, "blank")
-            charList.add(" ")
-
-            AppLogger.log(logTag, "Loaded ${charList.size} characters from model metadata")
-            return charList
+            val charString = customMetadata["character"]
+            if (charString != null) {
+                val charList = buildCharset(charString.lines())
+                AppLogger.log(logTag, "Loaded ${charList.size} characters from model metadata")
+                return charList
+            }
         } catch (e: Exception) {
-            AppLogger.log(logTag, "Failed to read charset from model, using default", e)
-            return getDefaultCharset()
+            AppLogger.log(logTag, "Failed to read charset from session metadata", e)
         }
+        readCharsetFromAssetMetadata()?.let { charList ->
+            AppLogger.log(logTag, "Loaded ${charList.size} characters from asset metadata fallback")
+            return charList
+        }
+        AppLogger.log(logTag, "Falling back to built-in charset")
+        return getDefaultCharset()
     }
 
     protected abstract fun getDefaultCharset(): List<String>
+
+    private fun readCharsetFromAssetMetadata(): List<String>? {
+        return runCatching {
+            context.assets.open(modelAssetName).use { input ->
+                val text = input.readBytes().toString(Charsets.UTF_8)
+                val markerIndex = text.indexOf("character")
+                if (markerIndex < 0) return@runCatching null
+                val rawLines = text.substring(markerIndex + "character".length).split('\n')
+                val chars = ArrayList<String>()
+                for ((index, line) in rawLines.withIndex()) {
+                    val normalized = when (index) {
+                        0 -> line.lastOrNull { it.code >= 0x20 }?.toString()
+                        else -> line
+                    } ?: continue
+                    if (normalized.length != 1) {
+                        if (chars.isNotEmpty()) break
+                        continue
+                    }
+                    chars += normalized
+                }
+                if (chars.isEmpty()) return@runCatching null
+                buildCharset(chars)
+            }
+        }.getOrNull()
+    }
+
+    private fun buildCharset(lines: List<String>): List<String> {
+        val charList = lines.filter { it.isNotEmpty() }.toMutableList()
+        charList.add(0, "blank")
+        if (charList.lastOrNull() != " ") {
+            charList.add(" ")
+        }
+        return charList
+    }
 
     private fun createSession(assetName: String): OrtSession {
         return OnnxRuntimeSupport.getOrCreateSession(
