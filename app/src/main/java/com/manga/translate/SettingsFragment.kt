@@ -1513,7 +1513,7 @@ class SettingsFragment : Fragment() {
             updateInputsEnabled(isChecked)
         }
         dialogBinding.ocrApiFormatInput.setOnItemClickListener { _, _, _, _ ->
-            updateInputsEnabled(!dialogBinding.useLocalOcrSwitch.isChecked)
+            updateInputsEnabled(dialogBinding.useLocalOcrSwitch.isChecked)
         }
 
         AlertDialog.Builder(requireContext())
