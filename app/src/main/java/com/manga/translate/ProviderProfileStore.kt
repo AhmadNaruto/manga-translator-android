@@ -336,6 +336,8 @@ internal class ProviderProfileStore(
                     .put("timeoutSeconds", profile.ocrSettings.timeoutSeconds)
                     .put("apiOcrConcurrencyLimit", profile.ocrSettings.apiOcrConcurrencyLimit)
                     .put("localOcrConcurrencyLimit", profile.ocrSettings.localOcrConcurrencyLimit)
+                    .put("ocrApiFormat", profile.ocrSettings.ocrApiFormat.prefValue)
+                    .put("secretKey", profile.ocrSettings.secretKey)
             )
             .put(
                 "floatingTranslateSettings",
@@ -485,7 +487,11 @@ internal class ProviderProfileStore(
                 ).coerceIn(
                     SettingsStore.MIN_LOCAL_OCR_CONCURRENCY,
                     SettingsStore.MAX_LOCAL_OCR_CONCURRENCY
-                )
+                ),
+                ocrApiFormat = OcrApiFormat.fromPref(
+                    ocrJson.optStringOrNull("ocrApiFormat")
+                ),
+                secretKey = ocrJson.optString("secretKey")
             ),
             floatingTranslateSettings = FloatingTranslateApiSettings(
                 apiUrl = floatingJson.optString("apiUrl"),

@@ -43,7 +43,11 @@ internal class OcrSettingsStore(
             ).coerceIn(
                 SettingsStore.MIN_LOCAL_OCR_CONCURRENCY,
                 SettingsStore.MAX_LOCAL_OCR_CONCURRENCY
-            )
+            ),
+            ocrApiFormat = OcrApiFormat.fromPref(
+                storage.prefs.getString(SettingsStore.KEY_OCR_API_FORMAT, null)
+            ),
+            secretKey = storage.prefs.getString(SettingsStore.KEY_OCR_SECRET_KEY, "") ?: ""
         )
     }
 
@@ -69,7 +73,9 @@ internal class OcrSettingsStore(
                 SettingsStore.KEY_OCR_MODEL_NAME,
                 SettingsStore.KEY_OCR_API_TIMEOUT_SECONDS,
                 SettingsStore.KEY_OCR_API_CONCURRENCY,
-                SettingsStore.KEY_LOCAL_OCR_CONCURRENCY
+                SettingsStore.KEY_LOCAL_OCR_CONCURRENCY,
+                SettingsStore.KEY_OCR_API_FORMAT,
+                SettingsStore.KEY_OCR_SECRET_KEY
             )
         ) {
             putBoolean(SettingsStore.KEY_OCR_USE_LOCAL, settings.useLocalOcr)
@@ -83,6 +89,11 @@ internal class OcrSettingsStore(
                 .putInt(SettingsStore.KEY_OCR_API_TIMEOUT_SECONDS, normalizedTimeout)
                 .putInt(SettingsStore.KEY_OCR_API_CONCURRENCY, normalizedConcurrency)
                 .putInt(SettingsStore.KEY_LOCAL_OCR_CONCURRENCY, normalizedLocalConcurrency)
+                .putString(
+                    SettingsStore.KEY_OCR_API_FORMAT,
+                    settings.ocrApiFormat.prefValue
+                )
+                .putString(SettingsStore.KEY_OCR_SECRET_KEY, settings.secretKey)
         }
     }
 }

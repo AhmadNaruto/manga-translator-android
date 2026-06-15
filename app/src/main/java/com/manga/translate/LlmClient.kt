@@ -27,11 +27,13 @@ import kotlin.coroutines.resumeWithException
 
 class LlmClient(
     context: Context,
-    private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
+    private val settingsStore: SettingsStore = SettingsStore(context.applicationContext),
+    private val baiduTokenManager: BaiduAccessTokenManager = BaiduAccessTokenManager(context.applicationContext)
 ) : LlmGateway {
     private val appContext = context.applicationContext
     private val promptCache = ConcurrentHashMap<String, LlmPromptConfig>()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    private val formUrlEncodedMediaType = "application/x-www-form-urlencoded".toMediaType()
     private val baseHttpClient = OkHttpClient()
     private val httpClientCache = object : LinkedHashMap<Int, OkHttpClient>(MAX_CACHED_HTTP_CLIENTS, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, OkHttpClient>?): Boolean {
@@ -109,11 +111,18 @@ class LlmClient(
         requestModelList(apiUrl, apiKey, apiFormat)
     }
 
-    override suspend fun recognizeImageText(image: Bitmap): String? = withContext(Dispatchers.IO) {
+    override suspend fun recognizeImageText(image: Bitmap, language: TranslationLanguage): String? = withContext(Dispatchers.IO) {
         val ocrSettings = settingsStore.loadOcrApiSettings()
         if (!ocrSettings.isValid() || ocrSettings.useLocalOcr) {
             return@withContext null
         }
+        return@withContext when (ocrSettings.ocrApiFormat) {
+            OcrApiFormat.OPENAI_COMPATIBLE -> recognizeWithOpenAi(ocrSettings, image)
+            OcrApiFormat.BAIDU_AI -> recognizeWithBaiduAi(ocrSettings, image, language)
+        }
+    }
+
+    private suspend fun recognizeWithOpenAi(ocrSettings: OcrApiSettings, image: Bitmap): String? {
         val endpoint = buildOpenAiEndpoint(ocrSettings.apiUrl)
         val payload = buildImageOcrPayload(ocrSettings, image)
         val timeoutMs = ocrSettings.timeoutSeconds * 1000
@@ -150,14 +159,14 @@ class LlmClient(
                 null
             }
             if (result != null || attempt == RETRY_COUNT) {
-                if (result != null) return@withContext result
+                if (result != null) return result
                 if (lastErrorCode != null) {
                     AppLogger.log(
                         "LlmClient",
                         "OCR request failed on ${redactEndpoint(endpoint)}: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
                     )
                 }
-                return@withContext null
+                return null
             }
             maybeBackoffBeforeRetry(
                 attempt,
@@ -166,7 +175,111 @@ class LlmClient(
                 lastErrorBody
             )
         }
-        null
+        return null
+    }
+
+    private suspend fun recognizeWithBaiduAi(ocrSettings: OcrApiSettings, image: Bitmap, language: TranslationLanguage): String? {
+        val accessToken = baiduTokenManager.getAccessToken(ocrSettings.apiKey, ocrSettings.secretKey)
+            ?: run {
+                AppLogger.log("LlmClient", "Baidu OCR: failed to obtain access token")
+                return null
+            }
+        val endpoint = BAIDU_OCR_GENERAL_URL + "?access_token=" + accessToken
+        val imageBase64 = ImageEncodingUtils.encodeBitmapToBase64(image)
+            ?: run {
+                AppLogger.log("LlmClient", "Baidu OCR: failed to encode image")
+                return null
+            }
+        val body = "image=" + java.net.URLEncoder.encode(imageBase64, "UTF-8") +
+                "&language_type=" + java.net.URLEncoder.encode(language.baiduLanguageType, "UTF-8")
+        val timeoutMs = ocrSettings.timeoutSeconds * 1000
+        var lastErrorCode: String? = null
+        var lastErrorBody: String? = null
+        for (attempt in 1..RETRY_COUNT) {
+            currentCoroutineContext().ensureActive()
+            val result = try {
+                executeRequest(
+                    request = Request.Builder()
+                        .url(endpoint)
+                        .post(body.toRequestBody(formUrlEncodedMediaType))
+                        .build(),
+                    timeoutMs = timeoutMs
+                ).use { response ->
+                    val code = response.code
+                    val respBody = response.body?.string().orEmpty()
+                    if (code !in 200..299) {
+                        AppLogger.log("LlmClient", "Baidu OCR HTTP $code: ${summarizeBody(respBody)}")
+                        lastErrorCode = "HTTP $code"
+                        lastErrorBody = respBody
+                        null
+                    } else {
+                        parseBaiduOcrResponse(respBody)?.trim()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.log("LlmClient", "Baidu OCR request failed (attempt $attempt)", e)
+                lastErrorCode = "NETWORK_ERROR"
+                null
+            }
+            if (result != null || attempt == RETRY_COUNT) {
+                if (result != null) return result
+                if (lastErrorCode != null) {
+                    AppLogger.log(
+                        "LlmClient",
+                        "Baidu OCR request failed: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
+                    )
+                }
+                return null
+            }
+            maybeBackoffBeforeRetry(
+                attempt,
+                RetryPolicy(maxAttempts = RETRY_COUNT, mode = RetryMode.DEFAULT),
+                lastErrorCode,
+                lastErrorBody
+            )
+        }
+        return null
+    }
+
+    private fun parseBaiduOcrResponse(body: String): String? {
+        return try {
+            val json = JSONObject(body)
+            if (json.has("error_code")) {
+                val errorCode = json.optInt("error_code")
+                if (errorCode != 0) {
+                    val errorMsg = json.optString("error_msg", "")
+                    AppLogger.log("LlmClient", "Baidu OCR error: code=$errorCode, msg=$errorMsg")
+                    return null
+                }
+            }
+            // Try words_result (general_basic format)
+            val wordsResult = json.optJSONArray("words_result")
+            if (wordsResult != null && wordsResult.length() > 0) {
+                val texts = ArrayList<String>(wordsResult.length())
+                for (i in 0 until wordsResult.length()) {
+                    val word = wordsResult.optJSONObject(i)?.optString("words")?.trim().orEmpty()
+                    if (word.isNotBlank()) texts.add(word)
+                }
+                return texts.joinToString("\n").ifBlank { null }
+            }
+            // Try data.ret (iOCR format)
+            val data = json.optJSONObject("data")
+            val ret = data?.optJSONArray("ret")
+            if (ret != null && ret.length() > 0) {
+                val texts = ArrayList<String>(ret.length())
+                for (i in 0 until ret.length()) {
+                    val word = ret.optJSONObject(i)?.optString("word")?.trim().orEmpty()
+                    if (word.isNotBlank()) texts.add(word)
+                }
+                return texts.joinToString("\n").ifBlank { null }
+            }
+            null
+        } catch (e: Exception) {
+            AppLogger.log("LlmClient", "Baidu OCR response parse failed", e)
+            null
+        }
     }
 
     override suspend fun translateImageBubble(
@@ -1497,6 +1610,7 @@ class LlmClient(
         private const val DEFAULT_IMAGE_TRANSLATION_USER_PROMPT =
             "Translate only the text visible in this manga bubble into Simplified Chinese. Output only the translated text."
         private const val RETRY_COUNT = 3
+        private const val BAIDU_OCR_GENERAL_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic"
         private const val MAX_CACHED_HTTP_CLIENTS = 4
         private const val RETRY_BASE_DELAY_MS = 750
         private const val RETRY_MAX_DELAY_MS = 4_000

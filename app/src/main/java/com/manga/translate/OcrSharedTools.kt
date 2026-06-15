@@ -232,7 +232,7 @@ class BubbleTextRecognizer(
     ): OcrRecognitionResult {
         val rawText = if (!useLocalOcr) {
             try {
-                llmClient.recognizeImageText(crop)?.trim().orEmpty()
+                llmClient.recognizeImageText(crop, language)?.trim().orEmpty()
             } catch (e: Exception) {
                 AppLogger.log(logTag, "API OCR failed", e)
                 return OcrRecognitionResult.Failure(e)

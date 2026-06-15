@@ -14,7 +14,7 @@ Tutorial: [Simplified Chinese Tutorial](./Tutorial/简中教程.md)
 - Japanese to Chinese, English to Chinese
 - Screen translation: supports floating-window translation to recognize and translate manga text from any screen
 - Manga library management: create folders, import images in batch, import manga folders, and support CBZ, ZIP, and PDF import/export
-- Translation pipeline: speech bubble detection + OCR + LLM translation, with both standard mode and full-text fast translation
+- Translation pipeline: speech bubble detection + OCR (supports OpenAI-compatible / Baidu AI) + LLM translation, with both standard mode and full-text fast translation
 - Reading experience: translation overlay, draggable translated bubbles, and automatic reading progress saving
 - Glossary and cache: maintain `glossary.json` per folder and automatically accumulate consistent name translations
 - Updates and logs: check for updates on launch, foreground service during translation, and in-app log viewing
@@ -34,14 +34,14 @@ Tutorial: [Simplified Chinese Tutorial](./Tutorial/简中教程.md)
 ## Quick Start 🚀
 1. Create a folder in the manga library and import images
 2. Make sure image filenames match the reading order, such as `1.jpg`, `2.jpg`
-3. Fill in the API URL, API key, and model name in Settings (OpenAI-compatible)
+3. In Settings > OCR Settings, choose the OCR API format (OpenAI-compatible / Baidu AI) and fill in the required fields
 4. Return to the library, choose a folder, and tap "Translate Folder"
 5. After translation finishes, tap "Start Reading" and drag bubble positions on the reader page as needed
 
 *For full-text fast translation, it is recommended to upload and translate in batches for large folders, or increase the API timeout in Settings.*
 
 ## FAQ ❓
-- Translation fails or returns empty results: make sure the API URL ends with `/v1`, the model name matches the provider, and the network is reachable
+- Translation fails or returns empty results: make sure the API URL ends with `/v1`, the model name matches the provider, and the network is reachable. If using Baidu AI OCR, verify that both the API Key and Secret Key are correct
 - Translation order is incorrect: rename images first so they match the reading order
 - How do I get an AI API: please search for a suitable provider based on your needs
 

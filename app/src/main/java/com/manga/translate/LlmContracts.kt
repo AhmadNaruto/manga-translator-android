@@ -64,7 +64,7 @@ interface LlmGateway {
         glossary: Map<String, String>,
         promptAsset: String
     ): Map<String, String>?
-    suspend fun recognizeImageText(image: Bitmap): String?
+    suspend fun recognizeImageText(image: Bitmap, language: TranslationLanguage): String?
     suspend fun translateImageBubble(
         imageBase64: String,
         promptAsset: String,

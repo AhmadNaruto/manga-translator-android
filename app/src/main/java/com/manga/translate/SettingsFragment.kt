@@ -1456,17 +1456,45 @@ class SettingsFragment : Fragment() {
         dialogBinding.localOcrConcurrencyInput.setText(
             String.format(Locale.getDefault(), "%d", currentSettings.localOcrConcurrencyLimit)
         )
+        dialogBinding.ocrSecretKeyInput.setText(currentSettings.secretKey)
+
+        // Setup format dropdown
+        val formatEntries = OcrApiFormat.entries.map { getString(it.labelRes) }
+        val formatValues = OcrApiFormat.entries.toTypedArray()
+        val formatAdapter = android.widget.ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_dropdown_item_1line,
+            formatEntries
+        )
+        dialogBinding.ocrApiFormatInput.setAdapter(formatAdapter)
+        val currentFormatIndex = formatValues.indexOf(currentSettings.ocrApiFormat)
+            .coerceAtLeast(0)
+        dialogBinding.ocrApiFormatInput.setText(formatEntries[currentFormatIndex], false)
+
+        fun resolveSelectedFormat(): OcrApiFormat {
+            val selectedText = dialogBinding.ocrApiFormatInput.text?.toString().orEmpty()
+            val idx = formatEntries.indexOf(selectedText)
+            return if (idx >= 0) formatValues[idx] else OcrApiFormat.OPENAI_COMPATIBLE
+        }
 
         fun updateInputsEnabled(useLocalOcr: Boolean) {
             val enabled = !useLocalOcr
-            dialogBinding.ocrApiUrlLayout.isEnabled = enabled
+            val isBaidu = enabled && resolveSelectedFormat() == OcrApiFormat.BAIDU_AI
+            val isOpenAi = enabled && !isBaidu
+            dialogBinding.ocrApiFormatLayout.visibility =
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.ocrApiUrlLayout.visibility =
+                if (isOpenAi) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiKeyLayout.isEnabled = enabled
-            dialogBinding.ocrModelNameLayout.isEnabled = enabled
+            dialogBinding.ocrModelNameLayout.visibility =
+                if (isOpenAi) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiTimeoutLayout.isEnabled = enabled
             dialogBinding.ocrApiUrlInput.isEnabled = enabled
             dialogBinding.ocrApiKeyInput.isEnabled = enabled
             dialogBinding.ocrModelNameInput.isEnabled = enabled
             dialogBinding.ocrApiTimeoutInput.isEnabled = enabled
+            dialogBinding.ocrSecretKeyLayout.visibility =
+                if (isBaidu) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiConcurrencyLayout.visibility =
                 if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.localOcrConcurrencyLayout.visibility =
@@ -1479,6 +1507,9 @@ class SettingsFragment : Fragment() {
         updateInputsEnabled(currentSettings.useLocalOcr)
         dialogBinding.useLocalOcrSwitch.setOnCheckedChangeListener { _, isChecked ->
             updateInputsEnabled(isChecked)
+        }
+        dialogBinding.ocrApiFormatInput.setOnItemClickListener { _, _, _, _ ->
+            updateInputsEnabled(!dialogBinding.useLocalOcrSwitch.isChecked)
         }
 
         AlertDialog.Builder(requireContext())
@@ -1497,6 +1528,7 @@ class SettingsFragment : Fragment() {
                 val localOcrConcurrencyLimit = parseIntInput(localConcurrencyInput)
                     ?.coerceIn(0, 8)
                     ?: currentSettings.localOcrConcurrencyLimit
+                val format = resolveSelectedFormat()
                 val settings = OcrApiSettings(
                     useLocalOcr = dialogBinding.useLocalOcrSwitch.isChecked,
                     japaneseLocalOcrEngine = JapaneseLocalOcrEngine.MANGA_OCR_MOBILE,
@@ -1505,7 +1537,9 @@ class SettingsFragment : Fragment() {
                     modelName = dialogBinding.ocrModelNameInput.text?.toString()?.trim().orEmpty(),
                     timeoutSeconds = timeoutSeconds,
                     apiOcrConcurrencyLimit = apiOcrConcurrencyLimit,
-                    localOcrConcurrencyLimit = localOcrConcurrencyLimit
+                    localOcrConcurrencyLimit = localOcrConcurrencyLimit,
+                    ocrApiFormat = format,
+                    secretKey = dialogBinding.ocrSecretKeyInput.text?.toString()?.trim().orEmpty()
                 )
                 settingsStore.saveOcrApiSettings(settings)
                 AppLogger.log(
@@ -1514,7 +1548,7 @@ class SettingsFragment : Fragment() {
                         if (settings.useLocalOcr) {
                             "local:${settings.japaneseLocalOcrEngine.prefValue}"
                         } else {
-                            "openai-compatible api"
+                            "${settings.ocrApiFormat.prefValue} api"
                         }
                     }"
                 )

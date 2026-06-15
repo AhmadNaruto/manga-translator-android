@@ -13,7 +13,7 @@
 | 翻译主流程 | `app/src/main/java/com/manga/translate/TranslationPipeline.kt` |
 | 多供应商调度 | `SettingsFragment.kt`、`SettingsStore.kt`、`ProviderProfileStore.kt`、`TranslationProviderScheduler.kt`、`FolderTranslationCoordinator.kt` |
 | 页面区域检测 | `app/src/main/java/com/manga/translate/PageRegionDetector.kt`、`BubbleDetector.kt`、`TextDetector.kt` |
-| OCR 相关 | `app/src/main/java/com/manga/translate/OcrSharedTools.kt`、`OcrEngine.kt`、`MangaOcr.kt`、`EnglishOcr.kt`、`KoreanOcr.kt` |
+| OCR 相关 | `app/src/main/java/com/manga/translate/OcrSharedTools.kt`、`OcrEngine.kt`、`MangaOcr.kt`、`EnglishOcr.kt`、`KoreanOcr.kt`、`OcrApiFormat.kt`、`BaiduAccessTokenManager.kt`、`LlmClient.kt` |
 | 漫画库 / 导入导出 | `LibraryFragment.kt`、`LibraryRepository.kt`、`LibraryImportExportCoordinator.kt` |
 | 阅读与气泡编辑 | `ReadingFragment.kt`、`ReadingSessionViewModel.kt`、`ReadingImageTransformController.kt`、`FloatingTranslationView.kt`、`BubbleRenderer.kt`、`BubbleTextScaling.kt` |
 | 设置页与参数持久化 | `SettingsFragment.kt`、`SettingsStore.kt`、`ApiSettingsStore.kt`、`OcrSettingsStore.kt`、`RenderSettingsStore.kt`、`LlmParameterStore.kt`、`ProviderProfileStore.kt` |
@@ -129,7 +129,7 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 - `TranslationPipeline.kt`：翻译主流程编排。
 - `TranslationProviderScheduler.kt`：多供应商调度相关类型，包含附加供应商配置结构、加权候选项、页面级供应商上下文和调度器。
 - `PageRegionDetector.kt`：页面区域检测公共模块，统一调度气泡检测、文本检测、bubble mask、supplement text box、overlap/filter，以及 `source` / `maskContour` 组装。
-- `LlmClient.kt`：LLM 请求客户端；文本气泡翻译已支持结构化 `items[{id,text}] -> items[{id,translation}]` 协议解析，当前网络层基于 `OkHttp`。主 AI 请求默认会读取设置页里的“API 最大重试次数 (1–50，默认 3)”并在可重试错误时按固定延时自动重试。
+- `LlmClient.kt`：LLM 请求客户端；文本气泡翻译已支持结构化 `items[{id,text}] -> items[{id,translation}]` 协议解析，当前网络层基于 `OkHttp`。主 AI 请求默认会读取设置页里的"API 最大重试次数 (1–50，默认 3)"并在可重试错误时按固定延时自动重试。OCR API 请求支持根据 `OcrApiFormat` 分发到 OpenAI 兼容端点或百度 AI OCR 端点，百度 AI 模式由 `BaiduAccessTokenManager` 管理 OAuth 令牌。
 - OpenAI 兼容接口目前同时兼容标准 `.../v1` 端点和智谱 `.../api/paas/v4` / `.../api/coding/paas/v4` 端点。接入智谱时，设置页 `API 格式` 仍选择 `OpenAI 兼容`，`API 地址` 填 `https://open.bigmodel.cn/api/paas/v4`（Coding 场景填 `https://open.bigmodel.cn/api/coding/paas/v4`），鉴权仍使用 `Bearer API Key`。
 - `TextBubbleTranslationCoordinator.kt`：共享文本气泡翻译入口，统一结构化请求、LLM 调用、按 `id` 回填、缺失项留空/多余项丢弃，以及 glossary 回传。
 - `FloatingBubbleTranslationCoordinator.kt`：悬浮窗气泡翻译协调，负责悬浮窗特有的缓存与回退策略。
@@ -382,7 +382,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 主模型配置：`api_format`、`api_url`、`api_key`、`model_name`
 - 多供应商调度：`additional_translation_providers`
 - 主请求控制：`api_timeout_seconds`、`api_retry_count`、`max_concurrency`
-- OCR 配置：`ocr_use_local`、`ocr_api_url`、`ocr_api_key`、`ocr_model_name`
+- OCR 配置：`ocr_use_local`、`ocr_api_format`、`ocr_api_url`、`ocr_api_key`、`ocr_secret_key`、`ocr_model_name`
 - 悬浮窗配置：`floating_api_url`、`floating_api_key`、`floating_model_name`、`floating_language`
 - 气泡框渲染配置：`normal_bubble_shrink_percent`、`normal_bubble_min_area_per_char_sp`、`horizontal_text_layout`、`floating_bubble_size_adjust_percent`、`floating_bubble_opacity_percent`、`floating_bubble_shape`、`floating_bubble_horizontal_text`、`floating_bubble_min_area_per_char_sp`
 - 文件夹级配置：`full_translate_enabled_<folder>`、`glossary_processing_enabled_<folder>`、`translation_language_<folder>`、`vl_direct_translate_enabled_<folder>`、`reading_mode_<folder>`

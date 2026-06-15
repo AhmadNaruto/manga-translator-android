@@ -2,11 +2,12 @@ package com.manga.translate
 
 enum class TranslationLanguage(
     val prefValue: String,
-    val displayNameResId: Int
+    val displayNameResId: Int,
+    val baiduLanguageType: String
 ) {
-    JA_TO_ZH("ja_to_zh", R.string.folder_language_ja_to_zh),
-    EN_TO_ZH("en_to_zh", R.string.folder_language_en_to_zh),
-    KO_TO_ZH("ko_to_zh", R.string.folder_language_ko_to_zh);
+    JA_TO_ZH("ja_to_zh", R.string.folder_language_ja_to_zh, "JAP"),
+    EN_TO_ZH("en_to_zh", R.string.folder_language_en_to_zh, "ENG"),
+    KO_TO_ZH("ko_to_zh", R.string.folder_language_ko_to_zh, "KOR");
 
     companion object {
         fun fromPref(value: String?): TranslationLanguage {

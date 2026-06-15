@@ -28,10 +28,22 @@ data class OcrApiSettings(
     val timeoutSeconds: Int,
     val apiOcrConcurrencyLimit: Int = 1,
     // 0 = auto (determined by device performance); positive = manual override
-    val localOcrConcurrencyLimit: Int = 0
+    val localOcrConcurrencyLimit: Int = 0,
+    val ocrApiFormat: OcrApiFormat = OcrApiFormat.OPENAI_COMPATIBLE,
+    val secretKey: String = ""
 ) {
     fun isValid(): Boolean {
-        return useLocalOcr || (apiUrl.isNotBlank() && apiKey.isNotBlank() && modelName.isNotBlank())
+        if (!useLocalOcr) {
+            when (ocrApiFormat) {
+                OcrApiFormat.OPENAI_COMPATIBLE -> {
+                    if (apiUrl.isBlank() || apiKey.isBlank() || modelName.isBlank()) return false
+                }
+                OcrApiFormat.BAIDU_AI -> {
+                    if (apiKey.isBlank() || secretKey.isBlank()) return false
+                }
+            }
+        }
+        return true
     }
 }
 
@@ -373,6 +385,8 @@ class SettingsStore(context: Context) {
         internal const val KEY_OCR_API_TIMEOUT_SECONDS = "ocr_api_timeout_seconds"
         internal const val KEY_OCR_API_CONCURRENCY = "ocr_api_concurrency"
         internal const val KEY_LOCAL_OCR_CONCURRENCY = "local_ocr_concurrency"
+        internal const val KEY_OCR_API_FORMAT = "ocr_api_format"
+        internal const val KEY_OCR_SECRET_KEY = "ocr_secret_key"
         internal const val KEY_HORIZONTAL_TEXT = "horizontal_text_layout"
         internal const val KEY_NORMAL_BUBBLE_SHRINK_PERCENT = "normal_bubble_shrink_percent"
         internal const val KEY_NORMAL_BUBBLE_MIN_AREA_PER_CHAR_SP =

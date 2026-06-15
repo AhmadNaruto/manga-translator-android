@@ -1,6 +1,7 @@
 package com.manga.translate.di
 
 import android.content.Context
+import com.manga.translate.BaiduAccessTokenManager
 import com.manga.translate.CrashStateStore
 import com.manga.translate.ExtractStateStore
 import com.manga.translate.FloatingBubbleTranslationCoordinator
@@ -30,11 +31,12 @@ import java.util.concurrent.CopyOnWriteArrayList
 internal class AppContainer(private val appContext: Context) {
     private val translationPipelines = CopyOnWriteArrayList<WeakReference<TranslationPipeline>>()
     val settingsStore = SettingsStore(appContext)
+    val baiduAccessTokenManager = BaiduAccessTokenManager(appContext)
     val crashStateStore = CrashStateStore(appContext)
     val updateIgnoreStore = UpdateIgnoreStore(appContext)
     val readingProgressStore = ReadingProgressStore(appContext)
     val libraryRepository = LibraryRepository(appContext)
-    val llmClient = LlmClient(appContext, settingsStore)
+    val llmClient = LlmClient(appContext, settingsStore, baiduAccessTokenManager)
     val ocrEngineRegistry = com.manga.translate.OcrEngineRegistry(appContext, settingsStore)
     val localModelMemoryManager = LocalModelMemoryManager {
         releasePipelineModels()
