@@ -1467,6 +1467,10 @@ class SettingsFragment : Fragment() {
             formatEntries
         )
         dialogBinding.ocrApiFormatInput.setAdapter(formatAdapter)
+        dialogBinding.ocrApiFormatInput.threshold = 0
+        dialogBinding.ocrApiFormatInput.setOnClickListener {
+            dialogBinding.ocrApiFormatInput.showDropDown()
+        }
         val currentFormatIndex = formatValues.indexOf(currentSettings.ocrApiFormat)
             .coerceAtLeast(0)
         dialogBinding.ocrApiFormatInput.setText(formatEntries[currentFormatIndex], false)

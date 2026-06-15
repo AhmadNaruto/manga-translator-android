@@ -33,6 +33,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/ocr_api_format_hint"
+            app:endIconMode="dropdown_menu"
             android:visibility="gone">
 
             <com.google.android.material.textfield.MaterialAutoCompleteTextView
@@ -40,6 +41,8 @@
                 android:id="@+id/ocr_api_format_input"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:focusable="false"
+                android:importantForAutofill="no"
                 android:inputType="none" />
         </com.google.android.material.textfield.TextInputLayout>
 
