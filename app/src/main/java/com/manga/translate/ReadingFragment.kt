@@ -1571,6 +1571,8 @@ class ReadingFragment : Fragment() {
     private fun showBubbleActionDialog(bubbleId: Int) {
         if (blockBubbleEditingWhileZoomed()) return
         if (!isEditMode) return
+        val translation = currentTranslation ?: return
+        val bubble = translation.bubbles.firstOrNull { it.id == bubbleId } ?: return
         val dialogView = layoutInflater.inflate(R.layout.dialog_bubble_actions, null)
         val resizeButton = dialogView.findViewById<android.widget.Button>(R.id.bubbleActionResize)
         val deleteButton = dialogView.findViewById<android.widget.Button>(R.id.bubbleActionDelete)
@@ -1578,9 +1580,13 @@ class ReadingFragment : Fragment() {
             .setView(dialogView)
             .setCancelable(true)
             .create()
-        resizeButton.setOnClickListener {
-            dialog.dismiss()
-            showResizePanel(bubbleId)
+        if (bubble.supportsResizeEditing()) {
+            resizeButton.setOnClickListener {
+                dialog.dismiss()
+                showResizePanel(bubbleId)
+            }
+        } else {
+            resizeButton.visibility = View.GONE
         }
         deleteButton.setOnClickListener {
             dialog.dismiss()

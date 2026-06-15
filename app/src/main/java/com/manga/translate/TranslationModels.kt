@@ -129,6 +129,8 @@ data class BubbleTranslation(
     val source: BubbleSource = BubbleSource.UNKNOWN,
     val maskContour: FloatArray? = null
 ) {
+    fun supportsResizeEditing(): Boolean = maskContour == null
+
     val text: String
         get() = when {
             translationState == BubbleTranslationState.TRANSLATED && translatedText.isNotBlank() -> translatedText

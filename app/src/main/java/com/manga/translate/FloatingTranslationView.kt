@@ -194,7 +194,9 @@ class FloatingTranslationView @JvmOverloads constructor(
             drawBubble(canvas, bubble)
             if (editMode) {
                 drawDeleteIcon(canvas, bubbleRect)
-                drawResizeIcon(canvas, bubbleRect)
+                if (bubble.supportsResizeEditing()) {
+                    drawResizeIcon(canvas, bubbleRect)
+                }
             }
         }
     }
@@ -420,6 +422,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         if (!editMode || bubbles.isEmpty() || imageWidth <= 0 || imageHeight <= 0) return null
         for (i in bubbles.indices.reversed()) {
             val bubble = bubbles[i]
+            if (!bubble.supportsResizeEditing()) continue
             updateBubbleRect(hitRect, bubble)
             if (!hitRect.contains(x, y)) continue
             computeResizeRect(hitRect, resizeRect)
