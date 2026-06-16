@@ -37,12 +37,11 @@ internal class ReadingEmptyBubbleCoordinator(
         }
 
         val ocrSettings = settingsStore.loadOcrApiSettings()
-        val useLocalOcr = ocrSettings.useLocalOcr
-        val language = if (useLocalOcr) {
-            getTranslationLanguage(folder)
-        } else {
-            TranslationLanguage.JA_TO_ZH
-        }
+        val language = TranslationLanguage.resolveForOcr(
+            getTranslationLanguage(folder),
+            ocrSettings.useLocalOcr
+        )
+        val useLocalOcr = ocrSettings.useLocalOcr && language.supportsLocalOcr()
         val glossary = glossaryStore.load(folder)
         val cropSource = PipelineBitmapDecoder.openCropSource(imageFile) ?: return@withContext null
         val localModelLease = localModelMemoryManager.acquire("ReadingEmptyBubble")
@@ -51,12 +50,12 @@ internal class ReadingEmptyBubbleCoordinator(
             cropSource.use {
                 val candidates = ArrayList<OcrBubble>(targets.size)
                 val removedIds = HashSet<Int>()
-                if (!ocrSettings.useLocalOcr && !ocrSettings.isValid()) {
+                if (!useLocalOcr && !ocrSettings.isValid()) {
                     AppLogger.log("Reading", "Missing OCR API settings")
                     return@withContext null
                 }
                 for (bubble in targets) {
-                    val text = ocrBubble(cropSource, bubble.rect, language, ocrSettings.useLocalOcr).trim()
+                    val text = ocrBubble(cropSource, bubble.rect, language, useLocalOcr).trim()
                     if (text.length <= 2) {
                         removedIds.add(bubble.id)
                     } else {

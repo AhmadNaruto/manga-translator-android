@@ -1055,11 +1055,10 @@ class LibraryFragment : Fragment() {
         val glossaryProcessingEnabled = preferencesGateway.isGlossaryProcessingEnabled(folder)
         val useVlDirectTranslate = preferencesGateway.isVlDirectTranslateEnabled(folder)
         val useLocalOcr = settingsStore.loadOcrApiSettings().useLocalOcr
-        val language = if (useLocalOcr) {
-            preferencesGateway.getTranslationLanguage(folder)
-        } else {
-            TranslationLanguage.JA_TO_ZH
-        }
+        val language = TranslationLanguage.resolveForOcr(
+            preferencesGateway.getTranslationLanguage(folder),
+            useLocalOcr
+        )
         _binding?.folderTranslate?.isEnabled = false
         TranslationKeepAliveService.startTranslationTask(
             requireContext(),
@@ -1090,11 +1089,10 @@ class LibraryFragment : Fragment() {
     private fun buildTranslationTasksForFolder(folder: File, force: Boolean): List<FolderTranslationTask> {
         if (!repository.isCollectionFolder(folder)) {
             val useLocalOcr = settingsStore.loadOcrApiSettings().useLocalOcr
-            val language = if (useLocalOcr) {
-                preferencesGateway.getTranslationLanguage(folder)
-            } else {
-                TranslationLanguage.JA_TO_ZH
-            }
+            val language = TranslationLanguage.resolveForOcr(
+                preferencesGateway.getTranslationLanguage(folder),
+                useLocalOcr
+            )
             return listOf(
                 FolderTranslationTask(
                     folder = folder,
@@ -1109,11 +1107,10 @@ class LibraryFragment : Fragment() {
         }
         return repository.listChildFolders(folder).map { chapter ->
             val useLocalOcr = settingsStore.loadOcrApiSettings().useLocalOcr
-            val language = if (useLocalOcr) {
-                preferencesGateway.getTranslationLanguage(chapter)
-            } else {
-                TranslationLanguage.JA_TO_ZH
-            }
+            val language = TranslationLanguage.resolveForOcr(
+                preferencesGateway.getTranslationLanguage(chapter),
+                useLocalOcr
+            )
             FolderTranslationTask(
                 folder = chapter,
                 images = repository.listImages(chapter),
@@ -1258,12 +1255,11 @@ class LibraryFragment : Fragment() {
 
     private fun updateLanguageSettingButton(folder: File) {
         val useLocalOcr = settingsStore.loadOcrApiSettings().useLocalOcr
-        val displayName = if (useLocalOcr) {
-            val language = preferencesGateway.getTranslationLanguage(folder)
-            getString(language.displayNameResId)
-        } else {
-            getString(R.string.folder_language_to_zh)
-        }
+        val language = TranslationLanguage.resolveForOcr(
+            preferencesGateway.getTranslationLanguage(folder),
+            useLocalOcr
+        )
+        val displayName = getString(language.displayNameResId)
         binding.folderLanguageSetting.text = getString(R.string.folder_language_setting, displayName)
     }
 
@@ -1277,12 +1273,13 @@ class LibraryFragment : Fragment() {
 
     private fun showLanguageSettingDialog() {
         val folder = currentFolder ?: return
-        if (!settingsStore.loadOcrApiSettings().useLocalOcr) {
-            dialogs.showFixedLanguageDialog(requireContext())
-            return
-        }
+        val useLocalOcr = settingsStore.loadOcrApiSettings().useLocalOcr
         val currentLanguage = preferencesGateway.getTranslationLanguage(folder)
-        dialogs.showLanguageSettingDialog(requireContext(), currentLanguage) { selectedLanguage ->
+        dialogs.showLanguageSettingDialog(
+            context = requireContext(),
+            languages = TranslationLanguage.supportedForOcr(useLocalOcr),
+            currentLanguage = currentLanguage
+        ) { selectedLanguage ->
             preferencesGateway.setTranslationLanguage(folder, selectedLanguage)
             updateLanguageSettingButton(folder)
             AppLogger.log("Library", "Set language for ${folder.name}: ${selectedLanguage.name}")

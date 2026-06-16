@@ -36,11 +36,11 @@ class SettingsStoreTest {
         val store = SettingsStore(context)
 
         store.saveFloatingTranslateApiSettings(
-            store.loadFloatingTranslateApiSettings().copy(language = TranslationLanguage.KO_TO_ZH)
+            store.loadFloatingTranslateApiSettings().copy(language = TranslationLanguage.FR_TO_ZH)
         )
 
         val prefs = context.getSharedPreferences("manga_translate_settings", Context.MODE_PRIVATE)
-        assertEquals("ko_to_zh", prefs.getString("floating_language", null))
+        assertEquals("fr_to_zh", prefs.getString("floating_language", null))
 
         prefs.edit().putString("floating_language", "EN_TO_ZH").commit()
 
@@ -48,6 +48,19 @@ class SettingsStoreTest {
             TranslationLanguage.EN_TO_ZH,
             store.loadFloatingTranslateApiSettings().language
         )
+    }
+
+    @Test
+    fun `translation language availability follows ocr mode`() {
+        assertEquals(
+            listOf(
+                TranslationLanguage.JA_TO_ZH,
+                TranslationLanguage.EN_TO_ZH,
+                TranslationLanguage.KO_TO_ZH
+            ),
+            TranslationLanguage.supportedForOcr(useLocalOcr = true)
+        )
+        assertTrue(TranslationLanguage.supportedForOcr(useLocalOcr = false).contains(TranslationLanguage.RU_TO_ZH))
     }
 
     @Test

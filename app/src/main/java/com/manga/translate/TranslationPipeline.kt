@@ -143,7 +143,9 @@ internal class TranslationPipeline(
         onProgress: (String) -> Unit
     ): PageOcrResult? = withContext(Dispatchers.Default) {
         val ocrSettings = settingsStore.loadOcrApiSettings()
-        val cacheMode = buildOcrCacheMode(imageFile, ocrSettings.useLocalOcr, language)
+        val resolvedLanguage = TranslationLanguage.resolveForOcr(language, ocrSettings.useLocalOcr)
+        val effectiveUseLocalOcr = ocrSettings.useLocalOcr && resolvedLanguage.supportsLocalOcr()
+        val cacheMode = buildOcrCacheMode(imageFile, effectiveUseLocalOcr, resolvedLanguage)
         val expectedMetadata = buildOcrMetadata(imageFile, language, ocrSettings, cacheMode)
         if (!forceOcr) {
             val cached = ocrStore.load(imageFile, expectedMetadata = expectedMetadata)
@@ -152,9 +154,9 @@ internal class TranslationPipeline(
                 return@withContext cached
             }
         }
-        val useLocalOcr = ocrSettings.useLocalOcr
+        val useLocalOcr = effectiveUseLocalOcr
         val ocrEngine: OcrEngine? = if (useLocalOcr) {
-            bubbleTextRecognizer.getLocalOcrEngine(language, "Pipeline")
+            bubbleTextRecognizer.getLocalOcrEngine(resolvedLanguage, "Pipeline")
         } else {
             null
         }
@@ -234,7 +236,7 @@ internal class TranslationPipeline(
                     val text = recognizeRegionFromSource(
                         cropSource = cropSource,
                         rect = region.rect,
-                        language = language,
+                        language = resolvedLanguage,
                         useLocalOcr = useLocalOcr,
                         logTag = "Pipeline"
                     )
@@ -260,7 +262,7 @@ internal class TranslationPipeline(
                                 val text = recognizeRegionFromSource(
                                     cropSource = cropSource,
                                     rect = region.rect,
-                                    language = language,
+                                    language = resolvedLanguage,
                                     useLocalOcr = false,
                                     logTag = "Pipeline"
                                 )
@@ -709,7 +711,8 @@ internal class TranslationPipeline(
         ocrSettings: OcrApiSettings,
         cacheMode: String
     ): OcrMetadata {
-        val engineModel = if (ocrSettings.useLocalOcr) {
+        val effectiveUseLocalOcr = ocrSettings.useLocalOcr && language.supportsLocalOcr()
+        val engineModel = if (effectiveUseLocalOcr) {
             "local:$cacheMode"
         } else {
             val customParamsFingerprint = settingsStore.loadCustomRequestParameters()
@@ -754,6 +757,13 @@ internal class TranslationPipeline(
                 }
                 TranslationLanguage.EN_TO_ZH -> "local_en"
                 TranslationLanguage.KO_TO_ZH -> "local_ko"
+                TranslationLanguage.CHN_ENG_TO_ZH,
+                TranslationLanguage.FR_TO_ZH,
+                TranslationLanguage.ES_TO_ZH,
+                TranslationLanguage.PT_TO_ZH,
+                TranslationLanguage.DE_TO_ZH,
+                TranslationLanguage.IT_TO_ZH,
+                TranslationLanguage.RU_TO_ZH -> "api"
             }
         }
         val strategyTag = PipelineBitmapDecoder.readImageSize(imageFile)?.let { size ->

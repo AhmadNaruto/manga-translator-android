@@ -199,12 +199,12 @@ internal class LibraryDialogs {
 
     fun showLanguageSettingDialog(
         context: Context,
+        languages: List<TranslationLanguage>,
         currentLanguage: TranslationLanguage,
         onSelected: (TranslationLanguage) -> Unit
     ) {
-        val languages = TranslationLanguage.values()
         val languageNames = languages.map { context.getString(it.displayNameResId) }.toTypedArray()
-        val currentIndex = languages.indexOf(currentLanguage)
+        val currentIndex = languages.indexOf(currentLanguage).coerceAtLeast(0)
         showSingleChoiceDialog(context, R.string.folder_language_setting_title, languageNames, currentIndex) {
             onSelected(languages[it])
         }

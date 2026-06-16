@@ -219,10 +219,11 @@ class FloatingBallOverlayService : Service() {
         language: TranslationLanguage
     ): String = withContext(Dispatchers.Default) {
         val ocrSettings = settingsStore.loadOcrApiSettings()
+        val resolvedLanguage = TranslationLanguage.resolveForOcr(language, ocrSettings.useLocalOcr)
         bubbleTextRecognizer.recognizeCrop(
             crop = crop,
-            language = language,
-            useLocalOcr = ocrSettings.useLocalOcr,
+            language = resolvedLanguage,
+            useLocalOcr = ocrSettings.useLocalOcr && resolvedLanguage.supportsLocalOcr(),
             logTag = "FloatingOCR"
         ).textOrEmpty()
     }

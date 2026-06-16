@@ -166,6 +166,13 @@ class BubbleTextRecognizer(
             }
             TranslationLanguage.EN_TO_ZH -> engineRegistry.getEnglishOcr(logTag)
             TranslationLanguage.KO_TO_ZH -> engineRegistry.getKoreanOcr(logTag)
+            TranslationLanguage.CHN_ENG_TO_ZH,
+            TranslationLanguage.FR_TO_ZH,
+            TranslationLanguage.ES_TO_ZH,
+            TranslationLanguage.PT_TO_ZH,
+            TranslationLanguage.DE_TO_ZH,
+            TranslationLanguage.IT_TO_ZH,
+            TranslationLanguage.RU_TO_ZH -> null
         }
     }
 
@@ -187,7 +194,14 @@ class BubbleTextRecognizer(
                 recognizeKoreanLines(source, lineRects, engine)
             }
 
-            TranslationLanguage.JA_TO_ZH -> emptyList()
+            TranslationLanguage.JA_TO_ZH,
+            TranslationLanguage.CHN_ENG_TO_ZH,
+            TranslationLanguage.FR_TO_ZH,
+            TranslationLanguage.ES_TO_ZH,
+            TranslationLanguage.PT_TO_ZH,
+            TranslationLanguage.DE_TO_ZH,
+            TranslationLanguage.IT_TO_ZH,
+            TranslationLanguage.RU_TO_ZH -> emptyList()
         }
     }
 
@@ -230,7 +244,8 @@ class BubbleTextRecognizer(
         useLocalOcr: Boolean,
         logTag: String
     ): OcrRecognitionResult {
-        val rawText = if (!useLocalOcr) {
+        val resolvedUseLocalOcr = useLocalOcr && language.supportsLocalOcr()
+        val rawText = if (!resolvedUseLocalOcr) {
             try {
                 llmClient.recognizeImageText(crop, language)?.trim().orEmpty()
             } catch (e: Exception) {
@@ -282,6 +297,16 @@ class BubbleTextRecognizer(
                     lines.joinToString("\n") { it.text }
                 }
             }
+
+            TranslationLanguage.CHN_ENG_TO_ZH,
+            TranslationLanguage.FR_TO_ZH,
+            TranslationLanguage.ES_TO_ZH,
+            TranslationLanguage.PT_TO_ZH,
+            TranslationLanguage.DE_TO_ZH,
+            TranslationLanguage.IT_TO_ZH,
+            TranslationLanguage.RU_TO_ZH -> return OcrRecognitionResult.Failure(
+                IllegalStateException("Local OCR unsupported for ${language.name}")
+            )
         }
         return OcrRecognitionResult.Success(OcrTextSanitizer.sanitize(rawText, language, logTag))
     }

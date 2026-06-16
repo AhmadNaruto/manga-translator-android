@@ -69,6 +69,12 @@ class TranslationModelsTest {
         assertEquals(PageTranslationStatus.PARTIAL, result.deriveStatus())
     }
 
+    @Test
+    fun `translation language exposes baidu ocr types`() {
+        assertEquals("CHN_ENG", TranslationLanguage.CHN_ENG_TO_ZH.baiduLanguageType)
+        assertEquals("RUS", TranslationLanguage.RU_TO_ZH.baiduLanguageType)
+    }
+
     private fun rect(index: Int): RectF {
         val top = index * 10f
         return RectF(0f, top, 100f, top + 8f)

@@ -85,15 +85,19 @@ class FloatingEmptyBubbleCoordinator(
         bitmap: Bitmap,
         bubbles: List<BubbleTranslation>
     ): List<BubbleTranslation> = withContext(Dispatchers.Default) {
-        val floatingLanguage = settingsStore.loadFloatingTranslateApiSettings().language
         val ocrSettings = settingsStore.loadOcrApiSettings()
+        val floatingLanguage = TranslationLanguage.resolveForOcr(
+            settingsStore.loadFloatingTranslateApiSettings().language,
+            ocrSettings.useLocalOcr
+        )
+        val useLocalOcr = ocrSettings.useLocalOcr && floatingLanguage.supportsLocalOcr()
         bubbles.map { bubble ->
             val crop = cropBitmap(bitmap, bubble.rect)
             val text = try {
                 if (crop == null) {
                     ""
                 } else {
-                    recognizeBubble(crop, floatingLanguage, ocrSettings.useLocalOcr)
+                    recognizeBubble(crop, floatingLanguage, useLocalOcr)
                 }
             } catch (e: Exception) {
                 AppLogger.log("FloatingOCR", "Recognize empty bubble failed id=${bubble.id}", e)

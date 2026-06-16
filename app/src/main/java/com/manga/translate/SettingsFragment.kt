@@ -183,9 +183,9 @@ class SettingsFragment : Fragment() {
 
     private fun setupTranslationLanguageDropdown(
         inputView: MaterialAutoCompleteTextView,
-        currentLanguage: TranslationLanguage
+        currentLanguage: TranslationLanguage,
+        languages: List<TranslationLanguage> = TranslationLanguage.entries
     ) {
-        val languages = TranslationLanguage.entries
         val labels = languages.map { getString(it.displayNameResId) }
         val textColor = resolveColorAttr(R.attr.dialogTextColor)
         inputView.setAdapter(
@@ -217,11 +217,12 @@ class SettingsFragment : Fragment() {
 
     private fun parseTranslationLanguage(
         inputView: MaterialAutoCompleteTextView,
-        defaultLanguage: TranslationLanguage
+        defaultLanguage: TranslationLanguage,
+        languages: List<TranslationLanguage> = TranslationLanguage.entries
     ): TranslationLanguage {
         val selectedLabel = inputView.text?.toString()?.trim().orEmpty()
         if (selectedLabel.isBlank()) return defaultLanguage
-        return TranslationLanguage.entries.firstOrNull {
+        return languages.firstOrNull {
             getString(it.displayNameResId) == selectedLabel
         } ?: defaultLanguage
     }
@@ -1576,6 +1577,9 @@ class SettingsFragment : Fragment() {
             currentSettings.proofreadingModeEnabled
         dialogBinding.floatingAutoCloseOnScreenChangeSwitch.isChecked =
             currentSettings.autoCloseOnScreenChangeEnabled
+        val floatingLanguages = TranslationLanguage.supportedForOcr(
+            settingsStore.loadOcrApiSettings().useLocalOcr
+        )
         setupFloatingGestureActionDropdown(
             dialogBinding.floatingSingleTapActionInput,
             currentSettings.singleTapAction
@@ -1594,7 +1598,8 @@ class SettingsFragment : Fragment() {
         )
         setupTranslationLanguageDropdown(
             dialogBinding.floatingLanguageInput,
-            currentSettings.language
+            currentSettings.language,
+            floatingLanguages
         )
         dialogBinding.floatingVlTranslateConcurrencyInput.setText(
             formatNumber(currentSettings.ocrConcurrencyLimit)
@@ -1637,7 +1642,8 @@ class SettingsFragment : Fragment() {
                         modelName = dialogBinding.floatingModelNameInput.text?.toString()?.trim().orEmpty(),
                         language = parseTranslationLanguage(
                             dialogBinding.floatingLanguageInput,
-                            currentSettings.language
+                            currentSettings.language,
+                            floatingLanguages
                         ),
                         timeoutSeconds = timeoutSeconds,
                         useVlDirectTranslate =

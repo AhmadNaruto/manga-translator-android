@@ -344,6 +344,13 @@
     <string name="folder_language_ja_to_zh">日文 → 中文</string>
     <string name="folder_language_en_to_zh">英文 → 中文</string>
     <string name="folder_language_ko_to_zh">韓文 → 中文</string>
+    <string name="folder_language_chn_eng_to_zh">中英混合 → 中文</string>
+    <string name="folder_language_fr_to_zh">法文 → 中文</string>
+    <string name="folder_language_es_to_zh">西班牙文 → 中文</string>
+    <string name="folder_language_pt_to_zh">葡萄牙文 → 中文</string>
+    <string name="folder_language_de_to_zh">德文 → 中文</string>
+    <string name="folder_language_it_to_zh">義大利文 → 中文</string>
+    <string name="folder_language_ru_to_zh">俄文 → 中文</string>
     <string name="folder_use_vl_direct_translate">使用 VL 模型翻譯整個氣泡</string>
     <string name="folder_use_vl_direct_translate_note">開啟後會把檢測到的氣泡裁圖直接送給視覺模型翻譯，跳過 OCR 識別步驟。普通翻譯使用主設定中的 API 與模型，請確認所填模型支援影像輸入。</string>
     <string name="folder_use_vl_direct_translate_warning">已開啟資料夾 VL 直翻。普通翻譯會直接使用主設定中的模型處理氣泡圖片，請確認目前模型支援影像輸入。</string>
